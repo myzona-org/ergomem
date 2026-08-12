@@ -1,0 +1,100 @@
+{
+  "id": "memory-ergo",
+  "name": "Ergo Memory",
+  "description": "Decision memory that remembers WHY, and refuses to silently contradict itself -- backed by a self-hosted Ergo engine.",
+  "version": "0.1.0",
+  "kind": "memory",
+  "activation": {
+    "onStartup": true
+  },
+  "contracts": {
+    "tools": [
+      "memory_recall",
+      "memory_store",
+      "memory_forget",
+      "ergo_why",
+      "ergo_learn",
+      "ergo_supersede",
+      "ergo_retract",
+      "ergo_active",
+      "ergo_history",
+      "ergo_diagnose",
+      "ergo_health"
+    ]
+  },
+  "toolMetadata": {
+    "memory_recall": { "optional": true },
+    "memory_store": { "optional": true },
+    "memory_forget": { "optional": true },
+    "ergo_why": { "optional": true },
+    "ergo_learn": { "optional": true },
+    "ergo_supersede": { "optional": true },
+    "ergo_retract": { "optional": true },
+    "ergo_active": { "optional": true },
+    "ergo_history": { "optional": true },
+    "ergo_diagnose": { "optional": true },
+    "ergo_health": { "optional": true }
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "baseUrl": {
+        "type": "string",
+        "default": "http://127.0.0.1:8788",
+        "description": "Ergo API base URL. Set to an empty string to disable this plugin."
+      },
+      "apiToken": {
+        "type": "string",
+        "description": "Ergo API bearer token. Leave unset for an open/dev instance."
+      },
+      "project": {
+        "type": "string",
+        "description": "Ergo project scope for this agent. Defaults to the harness agent id when unset, else \"openclaw\"."
+      },
+      "autoRecall": {
+        "type": "boolean",
+        "default": true,
+        "description": "Inject relevant Ergo memory before every prompt (read-only GET /recall)."
+      },
+      "autoCapture": {
+        "type": "boolean",
+        "default": false,
+        "description": "Opt-in: post each completed turn to Ergo's gate-free POST /ingest (never /remember). Off by default -- see README."
+      },
+      "recallLimit": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 50,
+        "default": 5,
+        "description": "Max memories injected per auto-recall / memory_recall call. 50 is Ergo's own GET /recall clamp (docs/HTTP-API.md) -- a higher value here would be misleading, not just unenforced."
+      }
+    }
+  },
+  "uiHints": {
+    "baseUrl": {
+      "label": "Ergo API URL",
+      "placeholder": "http://127.0.0.1:8788"
+    },
+    "apiToken": {
+      "label": "API Token",
+      "sensitive": true
+    },
+    "project": {
+      "label": "Project scope",
+      "help": "Namespace within Ergo's (org_id, project) scoping. See README for the resolution order."
+    },
+    "autoRecall": {
+      "label": "Auto-recall"
+    },
+    "autoCapture": {
+      "label": "Auto-capture (opt-in)",
+      "advanced": true,
+      "help": "Ergo is a decision store with mandatory reasons; unlike other memory plugins, capture is off by default. See README."
+    },
+    "recallLimit": {
+      "label": "Recall limit",
+      "advanced": true
+    }
+  }
+}

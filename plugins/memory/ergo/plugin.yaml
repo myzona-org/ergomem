@@ -1,0 +1,4 @@
+name: ergo
+version: 0.1.0
+description: "Ergo decision memory — automatic recall every turn, contradiction-guarded writes only via explicit tool calls."
+hooks: []

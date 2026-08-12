@@ -1,0 +1,72 @@
+# Curated semgrep ruleset for this repo's advisory CI lint job. Scope: the
+# handful of Python security patterns that matter for THIS codebase — a
+# stdlib-first HTTP server over SQLite. Keep this list short and
+# high-signal; broad registry packs create noise the LLM review already
+# covers.
+rules:
+  - id: ergo-sql-string-built-query
+    languages: [python]
+    severity: ERROR
+    message: >
+      SQL built by string interpolation/concatenation with no parameters
+      argument — every value in this codebase must go through `?` placeholders
+      with a parameters tuple. (F-string assembly of code-controlled FRAGMENTS
+      — dynamic WHERE clauses built from fixed strings — with the values still
+      passed as params is the accepted house pattern and is not flagged.)
+    patterns:
+      - pattern-either:
+          - pattern: $DB.execute(f"...")
+          - pattern: $DB.execute("..." % $X)
+          - pattern: $DB.execute("..." + $X)
+          - pattern: $DB.execute("...".format(...))
+          - pattern: $DB.executescript(f"...")
+      # PRAGMA values and DDL identifiers (ALTER/CREATE/DROP) cannot take `?`
+      # placeholders — interpolating code-controlled constants there is the
+      # only option and is not a finding. Anchored to the statement START
+      # (right after the opening quote(s)) so a DML query that merely CONTAINS
+      # one of these words in its text is still flagged.
+      - pattern-not-regex: \(\s*f?"{1,3}\s*(PRAGMA|ALTER\s+TABLE|CREATE\s|DROP\s)
+
+  - id: ergo-subprocess-shell-true
+    languages: [python]
+    severity: ERROR
+    message: >
+      subprocess with shell=True — command injection risk; use an argv list.
+    pattern-either:
+      - pattern: subprocess.run(..., shell=True, ...)
+      - pattern: subprocess.Popen(..., shell=True, ...)
+      - pattern: subprocess.call(..., shell=True, ...)
+      - pattern: subprocess.check_output(..., shell=True, ...)
+
+  - id: ergo-os-system
+    languages: [python]
+    severity: ERROR
+    message: os.system() — command injection risk; use subprocess with an argv list.
+    pattern: os.system(...)
+
+  - id: ergo-eval-exec
+    languages: [python]
+    severity: ERROR
+    message: >
+      eval()/exec() is prohibited in this codebase, full stop — the engine
+      never needs runtime code evaluation (any legitimate future exception
+      gets a targeted `# nosemgrep` with a justifying comment).
+    pattern-either:
+      - pattern: eval(...)
+      - pattern: exec(...)
+
+  - id: ergo-pickle-loads
+    languages: [python]
+    severity: ERROR
+    message: >
+      pickle deserialization of external data is code execution; this engine
+      persists via sqlite + JSON only.
+    pattern-either:
+      - pattern: pickle.loads(...)
+      - pattern: pickle.load(...)
+
+  - id: ergo-tempfile-mktemp
+    languages: [python]
+    severity: WARNING
+    message: tempfile.mktemp() is race-prone; use NamedTemporaryFile/mkstemp.
+    pattern: tempfile.mktemp(...)

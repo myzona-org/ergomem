@@ -1,0 +1,83 @@
+[project]
+name = "ergo-memory"
+version = "0.1.0"
+description = "Memory that remembers WHY — and catches itself contradicting."
+readme = "README.md"
+requires-python = ">=3.10"
+# Base deps are the minimum to import the engine. The 'engine' extra below adds
+# the embedder/NLI runtime that the Docker image bakes; the image installs that.
+dependencies = [
+    "httpx>=0.27",  # used by ergo.embedders (ollama/openai/cohere/voyage) + ergo.contradiction.normalize (LLMNormalizer)
+]
+
+[project.optional-dependencies]
+# 'engine' = everything the contradiction engine needs at runtime (the Docker
+# image installs this). Adds fastembed (default offline embedder, bge-small),
+# onnxruntime + tokenizers + numpy for the baked NLI judge, huggingface_hub for
+# offline model loading, sqlite-vec for the vector store.
+engine = [
+    "fastembed>=0.3",
+    # PINNED (2026-06-27): the quantized NLI judge is numerically unstable across
+    # onnxruntime/tokenizers versions on near-duplicate sentence pairs — e.g.
+    # "Skip smoke-testing X" vs "Smoke-test X" scores contradiction 0.9997 on
+    # ort 1.24.4/tok 0.22.2 but 0.042 on ort 1.27.0/tok 0.23.1 (identical model
+    # bytes). Unpinned floors let each `docker build` pull a different runtime than
+    # the eval was calibrated on, so prod and the prose eval silently diverged.
+    # Pin to the versions the in-container eval is calibrated against (P=1.000,
+    # R=0.710, 0 false hard-blocks). Re-run evals/prose/evaluate.py IN THE CONTAINER
+    # before changing either pin.
+    "onnxruntime==1.27.0",
+    "tokenizers==0.23.1",
+    "numpy>=1.26",
+    "huggingface_hub>=0.20",
+    "sqlite-vec>=0.1",
+]
+
+# 'mcp' = the stdio MCP adapter (`python -m ergo.mcp.server`), a thin HTTP client
+# over the engine's API. PINNED with == for the same reproducibility reason the
+# engine adopted for its NLI runtime (2026-06-27): an MCP SDK minor bump can change
+# tool-schema serialization or transport behavior, and we want a Claude Code
+# registration to behave identically across machines. Bump deliberately, then
+# re-run tests/mcp_adapter/. httpx is also a base dep (>=0.27); pinned here for the adapter.
+mcp = [
+    "mcp==1.29.0",
+    "httpx==0.28.1",
+]
+
+# 'dev' = everything the test suite needs. The suite exercises the retrieval
+# layer (sqlite-vec) and the MCP adapter, so a venv installed without those
+# extras fails 7 retrieval tests with ModuleNotFoundError instead of skipping —
+# install with `pip install -e ".[dev]"` and that class of false failure is gone.
+dev = [
+    "ergo-memory[engine,mcp]",
+    "pytest>=8",
+]
+
+# No [project.scripts]: the engine is an HTTP API (`python -m ergo.contradiction.server`),
+# not a CLI. The old `ergo` / `ergo-mcp` v1 commands lived on the Postgres+pgvector
+# tree retired 2026-06-27 (see commit history for the trim).
+
+[tool.pytest.ini_options]
+markers = [
+    # Real-model NLI tests (tests/contradiction/test_nli.py, `real_judge` fixture)
+    # exercise the actual quantized ONNX model and skip gracefully when it's not
+    # in the local HF cache — safe under a bare local `pytest` invocation on a
+    # machine with no model cached. Both the host-side release gate and the
+    # GitHub Actions `test` job deselect this marker with `-m 'not real_model'`
+    # because the quantized-NLI numeric instability across CPU/runtime is
+    # environment-sensitive (see the onnxruntime/tokenizers pin comment in
+    # pyproject.toml's [engine] extra): a PERSISTENT self-hosted CI runner
+    # lets the model end up cached between jobs, which would otherwise let
+    # these tests intermittently flip from
+    # skipped to actually-executing and fail nondeterministically depending on
+    # runner state. The authoritative real-model verification already runs
+    # in-container via evals/prose/evaluate.py.
+    "real_model: exercises the actual ONNX NLI model (skips if not cached; excluded from the release gate and from CI)",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["ergo"]

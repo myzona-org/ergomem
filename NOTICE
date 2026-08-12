@@ -1,0 +1,17 @@
+Ergo
+Copyright (c) 2026 Edward Khytrykh. All rights reserved.
+
+See LICENSE for this project's own license terms.
+
+This project's Docker image bundles model weights from third parties. Full
+provenance, licenses, pinned revisions, and file hashes are recorded in
+THIRD-PARTY-MODELS.md; the summary:
+
+  - BAAI/bge-small-en-v1.5 (embedder) -- MIT. Commercial use and
+    redistribution permitted.
+
+  - Xenova/nli-deberta-v3-base (NLI judge) -- license UNRESOLVED. The
+    upstream cross-encoder checkpoint is Apache-2.0, but the exact ONNX
+    mirror this image bakes declares no license of its own. Read
+    THIRD-PARTY-MODELS.md before assuming it is clear to redistribute a
+    built image containing this checkpoint.

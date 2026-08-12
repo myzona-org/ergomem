@@ -1,0 +1,14 @@
+{
+  "_comment": "Example Claude Code MCP registration for the Ergo stdio adapter. Copy to .mcp.json (project scope) or fold into ~/.claude.json. NEVER hardcode the token here — ${ERGO_API_TOKEN} is expanded from the environment at launch. User scope (available in every project), token injected via env — not committed: see docs/MCP.md for the `claude mcp add --scope user` recipe.",
+  "mcpServers": {
+    "ergo": {
+      "type": "stdio",
+      "command": "./ergo/mcp/ergo-mcp-launcher.sh",
+      "args": [],
+      "env": {
+        "ERGO_API_URL": "${ERGO_API_URL:-http://127.0.0.1:8788}",
+        "ERGO_API_TOKEN": "${ERGO_API_TOKEN}"
+      }
+    }
+  }
+}

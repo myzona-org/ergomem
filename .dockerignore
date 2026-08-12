@@ -1,0 +1,14 @@
+.git
+.venv
+venv
+__pycache__
+*.pyc
+.pytest_cache
+.DS_Store
+*.egg-info
+dist
+build
+# NOTE: the embedding model is downloaded during the build (see Dockerfile), so no
+# pre-staged docker-model/ directory is required. A stray local docker-model/ (e.g. from
+# an older workflow) is harmless build context — ignore it to keep the context small.
+docker-model

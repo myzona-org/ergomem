@@ -1,0 +1,33 @@
+{
+  "name": "openclaw-plugin-ergo",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "OpenClaw memory plugin backed by Ergo -- decision memory that remembers why, and refuses to silently contradict itself.",
+  "keywords": [
+    "openclaw",
+    "openclaw-plugin",
+    "memory",
+    "ai-memory",
+    "decision-memory",
+    "long-term-memory",
+    "contradiction-detection",
+    "mcp",
+    "ergo"
+  ],
+  "main": "index.ts",
+  "openclaw": {
+    "extensions": ["./index.ts"]
+  },
+  "scripts": {
+    "test": "node --experimental-strip-types --test tests/*.test.ts"
+  },
+  "peerDependencies": {
+    "openclaw": ">=2026.3.24-beta.2"
+  },
+  "dependencies": {
+    "@sinclair/typebox": "^0.34.0"
+  },
+  "author": "Edward Khytrykh",
+  "license": "SEE LICENSE IN ../../../LICENSE"
+}

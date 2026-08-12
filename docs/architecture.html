@@ -1,0 +1,681 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Ergo — Unified Engine Architecture &amp; Data Flow (single-tenant)</title>
+<style>
+  body { margin:0; background:radial-gradient(ellipse at top, #181c25 0%, #0a0c11 70%); color:#e6e6e6; font:14px/1.5 -apple-system,Segoe UI,Roboto,sans-serif; min-height:100vh; }
+  header { padding:20px 28px; border-bottom:1px solid #222; background:linear-gradient(180deg, #16191f 0%, #0f1115 100%); }
+  h1 { margin:0; font-size:22px; text-shadow:0 1px 2px rgba(0,0,0,.6); }
+  h1 small { color:#8a90a0; font-weight:400; font-size:14px; }
+  .subhead { color:#8a90a0; font-size:12px; margin-top:4px; }
+  .subhead b { color:#7ee2a0; font-weight:600; }
+  .wrap { display:flex; gap:0; align-items:flex-start; }
+  svg { display:block; }
+  .panel { padding:18px 24px; width:380px; border-left:1px solid #222; background:linear-gradient(180deg, rgba(20,24,32,.4) 0%, transparent 100%); }
+  .panel h2 { font-size:13px; text-transform:uppercase; letter-spacing:.08em; color:#8a90a0; margin:18px 0 8px; }
+  .panel h2:first-child { margin-top:0; }
+  .flow { margin:0 0 10px; padding:10px 12px; background:linear-gradient(180deg, #232938 0%, #12161d 60%, #0a0d12 100%); border-radius:8px; border-left:3px solid #444; box-shadow:0 6px 14px rgba(0,0,0,.7), 0 2px 4px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.08); }
+  .flow b { color:#fff; }
+  .flow span { color:#aeb4c2; }
+  .flow code { background:#22262e; padding:1px 5px; border-radius:4px; color:#d6e3ff; font-size:11.5px; }
+  .legend { display:flex; flex-wrap:wrap; gap:10px; padding:12px 28px; border-top:1px solid #222; background:#0e1116; }
+  .legend div { display:flex; align-items:center; gap:6px; font-size:12px; color:#aeb4c2; }
+  .sw { width:22px; height:3px; border-radius:2px; box-shadow:0 1px 2px rgba(0,0,0,.6); }
+  .stats { display:flex; gap:14px; padding:10px 28px; border-top:1px solid #222; background:#0c0f14; font-size:12px; flex-wrap:wrap; }
+  .stat { color:#8a90a0; }
+  .stat b { color:#7ee2a0; }
+  .stat.warn b { color:#f0c674; }
+  .stat.muted b { color:#9cd1ff; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Ergo &nbsp;<small>unified engine — architecture v4 &amp; data flow (single-tenant)</small></h1>
+  <div class="subhead">
+    One product, one engine, one container. <b>The two halves are merged</b>:
+    the contradiction firewall (precision <b>P=0.957</b> on the labeled prose eval) and
+    the retrieval verbs (<b>recall</b>, <b>why</b>, with reason-history chains) live in the SAME
+    SQLite + sqlite-vec store.  Seven core verbs, five data-flow lanes,
+    <b>one audit trail</b>.
+
+    <br>
+        <b>Single-tenant:</b> <code>ERGO_API_TOKEN</code> gates every route (a loopback-only bind still
+    runs open if unset; a non-loopback bind refuses to start unless <code>ERGO_INSECURE_NO_AUTH=1</code>);
+    a bounded <code>ThreadingHTTPServer</code> serves concurrent requests against ONE SQLite file that
+    stays single-writer via <code>BEGIN IMMEDIATE</code> + <code>SQLITE_BUSY</code> retry.
+    <b>0 false hard-blocks.</b>
+
+  </div>
+</header>
+
+<div class="wrap">
+<svg width="900" height="1500" viewBox="0 0 900 1500">
+  <defs>
+    <!-- arrow markers (one per lane colour) -->
+    <marker id="a"     markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#9aa"/></marker>
+    <marker id="amber" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#d29922"/></marker>
+    <marker id="red"   markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#f47174"/></marker>
+    <marker id="green" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#7ee2a0"/></marker>
+    <marker id="blue"  markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#58a6ff"/></marker>
+    <marker id="purple" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#bc8cff"/></marker>
+    <marker id="teal"  markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#5fd9c6"/></marker>
+
+    <!-- 3D depth filters -->
+    <filter id="shadowLg" x="-20%" y="-20%" width="150%" height="170%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="7"/>
+      <feOffset dx="6" dy="14" result="off"/>
+      <feFlood flood-color="#000" flood-opacity="0.85"/>
+      <feComposite in2="off" operator="in"/>
+      <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="shadowSm" x="-30%" y="-30%" width="160%" height="180%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="3"/>
+      <feOffset dx="3" dy="6" result="off"/>
+      <feFlood flood-color="#000" flood-opacity="0.75"/>
+      <feComposite in2="off" operator="in"/>
+      <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+
+    <!-- Panel + chip gradients -->
+    <linearGradient id="gPanel" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%"  stop-color="#222837"/>
+      <stop offset="45%" stop-color="#12161d"/>
+      <stop offset="100%" stop-color="#05070a"/>
+    </linearGradient>
+    <linearGradient id="gSqlite" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%"  stop-color="#1d4a3e"/>
+      <stop offset="50%" stop-color="#0f1d17"/>
+      <stop offset="100%" stop-color="#040908"/>
+    </linearGradient>
+    <linearGradient id="gImage" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%"  stop-color="#2a2438"/>
+      <stop offset="50%" stop-color="#16121f"/>
+      <stop offset="100%" stop-color="#06040a"/>
+    </linearGradient>
+    <linearGradient id="gControl" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%"  stop-color="#2c2340"/>
+      <stop offset="50%" stop-color="#171226"/>
+      <stop offset="100%" stop-color="#07050c"/>
+    </linearGradient>
+    <linearGradient id="gGreen"  x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#1d3826"/><stop offset="100%" stop-color="#0e1d15"/></linearGradient>
+    <linearGradient id="gBlue"   x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#1a2c46"/><stop offset="100%" stop-color="#0d1825"/></linearGradient>
+    <linearGradient id="gPurple" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#332544"/><stop offset="100%" stop-color="#1a1226"/></linearGradient>
+    <linearGradient id="gAmber"  x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#3a2c19"/><stop offset="100%" stop-color="#1e1709"/></linearGradient>
+    <linearGradient id="gRed"    x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#3a1f1f"/><stop offset="100%" stop-color="#1f0e0e"/></linearGradient>
+    <linearGradient id="gTeal"   x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#163a36"/><stop offset="100%" stop-color="#081e1b"/></linearGradient>
+    <linearGradient id="gGray"   x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#262a35"/><stop offset="100%" stop-color="#15171f"/></linearGradient>
+    <linearGradient id="gSlot"   x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#243044"/><stop offset="100%" stop-color="#10162a"/></linearGradient>
+    <linearGradient id="sheen" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="rgba(255,255,255,0.18)"/>
+      <stop offset="100%" stop-color="rgba(255,255,255,0)"/>
+    </linearGradient>
+  </defs>
+
+  <!-- ====================================================================== -->
+  <!-- 1. CLIENTS                                                              -->
+  <!-- ====================================================================== -->
+  <g filter="url(#shadowLg)">
+    <rect x="40" y="30" width="820" height="64" rx="10" fill="url(#gPanel)" stroke="#2a2f3a"/>
+  </g>
+  <rect x="40" y="30" width="820" height="14" rx="10" fill="url(#sheen)" pointer-events="none"/>
+  <text x="56" y="52" fill="#8a90a0" font-size="11" letter-spacing="1.5">CLIENTS &nbsp;— bearer token → <tspan fill="#d9bcff">Principal</tspan> (org_id · who · role); audit row per write</text>
+  <g filter="url(#shadowSm)">
+    <rect x="60"  y="58" width="170" height="28" rx="6" fill="url(#gSlot)" stroke="#39414f"/>
+    <rect x="240" y="58" width="170" height="28" rx="6" fill="url(#gSlot)" stroke="#39414f"/>
+    <rect x="420" y="58" width="220" height="28" rx="6" fill="url(#gSlot)" stroke="#39414f"/>
+    <rect x="650" y="58" width="190" height="28" rx="6" fill="url(#gSlot)" stroke="#39414f"/>
+  </g>
+  <text x="145" y="76" fill="#cdd3df" font-size="12" text-anchor="middle">MCP server</text>
+  <text x="325" y="76" fill="#cdd3df" font-size="12" text-anchor="middle">agent hosts</text>
+  <text x="530" y="76" fill="#cdd3df" font-size="12" text-anchor="middle">team members &amp; agents (HTTP)</text>
+  <text x="745" y="76" fill="#cdd3df" font-size="12" text-anchor="middle">bulk ingest jobs</text>
+
+  <!-- fan-in line to the auth stage -->
+  <line x1="450" y1="94" x2="450" y2="110" stroke="#9aa" stroke-width="1.5" marker-end="url(#a)"/>
+
+  <!-- ====================================================================== -->
+  <!-- 2. AUTH — bearer token -> Principal (single-tenant: no control plane)  -->
+  <!-- ====================================================================== -->
+  <g filter="url(#shadowLg)">
+    <rect x="40" y="116" width="820" height="104" rx="10" fill="url(#gControl)" stroke="#3a2f54"/>
+  </g>
+  <rect x="40" y="116" width="820" height="14" rx="10" fill="url(#sheen)" pointer-events="none"/>
+  <text x="56" y="138" fill="#d9bcff" font-size="11" letter-spacing="1.5">AUTH &nbsp;— bearer token resolves to a Principal (no control plane, no per-tenant lookup)</text>
+
+  <g filter="url(#shadowSm)">
+    <rect x="60"  y="150" width="248" height="60" rx="7" fill="url(#gSlot)" stroke="#5a6273"/>
+    <rect x="322" y="150" width="248" height="60" rx="7" fill="url(#gSlot)" stroke="#5a6273"/>
+    <rect x="584" y="150" width="256" height="60" rx="7" fill="url(#gPurple)" stroke="#bc8cff"/>
+  </g>
+  <text x="184" y="169" fill="#9cd1ff" font-size="12" font-weight="600" text-anchor="middle">ERGO_API_TOKEN</text>
+  <text x="74" y="187" fill="#cdd3df" font-size="10.5">if set: every route but /health, /ready needs it</text>
+  <text x="74" y="202" fill="#9bb" font-size="10">if unset: OPEN, but loopback-bind only (else refused unless ERGO_INSECURE_NO_AUTH=1)</text>
+
+  <text x="446" y="169" fill="#9cd1ff" font-size="12" font-weight="600" text-anchor="middle">hmac.compare_digest</text>
+  <text x="336" y="187" fill="#cdd3df" font-size="10.5">constant-time bearer check</text>
+  <text x="336" y="202" fill="#9bb" font-size="10">no token table, no lookup</text>
+
+  <text x="712" y="169" fill="#d9bcff" font-size="12" font-weight="600" text-anchor="middle">→ LEGACY_PRINCIPAL</text>
+  <text x="598" y="187" fill="#cdd3df" font-size="10">org_id · who FROM THE BODY (not the token)</text>
+  <text x="598" y="202" fill="#9bb" font-size="9.5">the only principal this build ever produces</text>
+
+
+  <!-- fan-in line to the API row -->
+  <line x1="450" y1="220" x2="450" y2="236" stroke="#9aa" stroke-width="1.5" marker-end="url(#a)"/>
+
+  <!-- ====================================================================== -->
+  <!-- 3. HTTP API SURFACE — 5 flow verbs + learn/retract                      -->
+  <!-- ====================================================================== -->
+  <g filter="url(#shadowLg)">
+    <rect x="40" y="236" width="820" height="116" rx="10" fill="url(#gPanel)" stroke="#2a2f3a"/>
+  </g>
+  <rect x="40" y="236" width="820" height="14" rx="10" fill="url(#sheen)" pointer-events="none"/>
+  <text x="56" y="258" fill="#8a90a0" font-size="11" letter-spacing="1.5">HTTP API &nbsp;— ergo/contradiction/server.py &nbsp;(stdlib · bounded ThreadingHTTPServer · single-writer SQLite)</text>
+
+  <!-- 5 endpoints in 5 colors that match the lanes below -->
+  <g filter="url(#shadowSm)">
+    <rect x="58"  y="266" width="148" height="38" rx="6" fill="url(#gAmber)" stroke="#d29922"/>
+    <rect x="218" y="266" width="148" height="38" rx="6" fill="url(#gGreen)" stroke="#3fb950"/>
+    <rect x="378" y="266" width="148" height="38" rx="6" fill="url(#gPurple)" stroke="#bc8cff"/>
+    <rect x="538" y="266" width="148" height="38" rx="6" fill="url(#gBlue)" stroke="#58a6ff"/>
+    <rect x="698" y="266" width="148" height="38" rx="6" fill="url(#gTeal)" stroke="#5fd9c6"/>
+  </g>
+  <text x="132" y="284" fill="#f0c674" font-size="12" font-weight="600" text-anchor="middle">POST /remember</text>
+  <text x="132" y="298" fill="#9bb"  font-size="10.5" text-anchor="middle">guarded write</text>
+
+  <text x="292" y="284" fill="#7ee2a0" font-size="12" font-weight="600" text-anchor="middle">POST /ingest</text>
+  <text x="292" y="298" fill="#9bb"  font-size="10.5" text-anchor="middle">bulk fact fast-path</text>
+
+  <text x="452" y="284" fill="#d9bcff" font-size="12" font-weight="600" text-anchor="middle">POST /supersede</text>
+  <text x="452" y="298" fill="#9bb"  font-size="10.5" text-anchor="middle">change of mind</text>
+
+  <text x="612" y="284" fill="#9cd1ff" font-size="12" font-weight="600" text-anchor="middle">GET /recall</text>
+  <text x="612" y="298" fill="#9bb"  font-size="10.5" text-anchor="middle">hybrid semantic search</text>
+
+  <text x="772" y="284" fill="#5fd9c6" font-size="12" font-weight="600" text-anchor="middle">GET /why</text>
+  <text x="772" y="298" fill="#9bb"  font-size="10.5" text-anchor="middle">reasoned belief + history</text>
+
+  <!-- row 2: learn + retract + note -->
+  <g filter="url(#shadowSm)">
+    <rect x="58"  y="312" width="150" height="32" rx="6" fill="url(#gAmber)" stroke="#d29922"/>
+    <rect x="220" y="312" width="150" height="32" rx="6" fill="url(#gRed)" stroke="#f47174"/>
+  </g>
+  <text x="133" y="326" fill="#f0c674" font-size="11.5" font-weight="600" text-anchor="middle">POST /learn</text>
+  <text x="133" y="339" fill="#9bb" font-size="9.5" text-anchor="middle">guarded · from a source</text>
+  <text x="295" y="326" fill="#f47174" font-size="11.5" font-weight="600" text-anchor="middle">POST /retract</text>
+  <text x="295" y="339" fill="#9bb" font-size="9.5" text-anchor="middle">wrong-at-birth</text>
+  <text x="384" y="324" fill="#aeb4c2" font-size="10">/learn shares the /remember firewall (source folded into the reason, can 409);</text>
+  <text x="384" y="338" fill="#8a90a0" font-size="10">/retract skips the gate, flips status → retracted, writes an audit row.</text>
+
+  <!-- ====================================================================== -->
+  <!-- 4. FIVE DATA-FLOW LANES (reused verbatim, shifted +158)                 -->
+  <!-- ====================================================================== -->
+  <g transform="translate(0,158)">
+  <!-- Lane band background -->
+  <g filter="url(#shadowLg)">
+    <rect x="40" y="210" width="820" height="510" rx="10" fill="url(#gPanel)" stroke="#2a2f3a"/>
+  </g>
+  <rect x="40" y="210" width="820" height="14" rx="10" fill="url(#sheen)" pointer-events="none"/>
+  <text x="56" y="232" fill="#8a90a0" font-size="11" letter-spacing="1.5">DATA FLOW &nbsp;— what each endpoint does inside the engine (top → bottom = request → store)</text>
+
+  <!-- column dividers (light, only as guides) -->
+  <line x1="206" y1="246" x2="206" y2="712" stroke="#222a36" stroke-width="1" stroke-dasharray="2 4"/>
+  <line x1="366" y1="246" x2="366" y2="712" stroke="#222a36" stroke-width="1" stroke-dasharray="2 4"/>
+  <line x1="526" y1="246" x2="526" y2="712" stroke="#222a36" stroke-width="1" stroke-dasharray="2 4"/>
+  <line x1="686" y1="246" x2="686" y2="712" stroke="#222a36" stroke-width="1" stroke-dasharray="2 4"/>
+
+  <!-- =====  LANE 1: /remember (amber) — contradiction firewall  ===== -->
+  <g filter="url(#shadowSm)"><rect x="60" y="252" width="136" height="56" rx="6" fill="url(#gAmber)" stroke="#d29922"/></g>
+  <text x="128" y="270" fill="#f0c674" font-size="11.5" font-weight="600" text-anchor="middle">normalize</text>
+  <text x="128" y="284" fill="#9bb"  font-size="10" text-anchor="middle">RuleNorm | LLMNorm</text>
+  <text x="128" y="297" fill="#9bb"  font-size="10" text-anchor="middle">→ subject · modality · scope</text>
+  <line x1="128" y1="308" x2="128" y2="324" stroke="#d29922" stroke-width="1.6" marker-end="url(#amber)"/>
+
+  <g filter="url(#shadowSm)"><rect x="60" y="328" width="136" height="46" rx="6" fill="url(#gAmber)" stroke="#d29922"/></g>
+  <text x="128" y="346" fill="#f0c674" font-size="11.5" font-weight="600" text-anchor="middle">structural compare</text>
+  <text x="128" y="362" fill="#9bb"  font-size="10" text-anchor="middle">same subj + opposing modality?</text>
+  <line x1="128" y1="374" x2="128" y2="390" stroke="#d29922" stroke-width="1.6" marker-end="url(#amber)"/>
+
+  <g filter="url(#shadowSm)"><rect x="60" y="394" width="136" height="46" rx="6" fill="url(#gAmber)" stroke="#d29922"/></g>
+  <text x="128" y="412" fill="#f0c674" font-size="11.5" font-weight="600" text-anchor="middle">NLI (gated)</text>
+  <text x="128" y="428" fill="#9bb"  font-size="10" text-anchor="middle">deberta-v3 · overlap-gated</text>
+  <line x1="128" y1="440" x2="128" y2="456" stroke="#d29922" stroke-width="1.6" marker-end="url(#amber)"/>
+
+  <g filter="url(#shadowSm)"><rect x="60" y="460" width="136" height="46" rx="6" fill="url(#gAmber)" stroke="#d29922"/></g>
+  <text x="128" y="478" fill="#f0c674" font-size="11.5" font-weight="600" text-anchor="middle">judge → tier</text>
+  <text x="128" y="494" fill="#9bb"  font-size="10" text-anchor="middle">BLOCK · WARN · clean</text>
+  <line x1="128" y1="506" x2="128" y2="522" stroke="#d29922" stroke-width="1.6" marker-end="url(#amber)"/>
+
+  <g filter="url(#shadowSm)"><rect x="60" y="526" width="136" height="62" rx="6" fill="url(#gRed)" stroke="#f47174"/></g>
+  <text x="128" y="544" fill="#f47174" font-size="11.5" font-weight="600" text-anchor="middle">write-guard</text>
+  <text x="128" y="558" fill="#9bb"  font-size="10" text-anchor="middle">BEGIN IMMEDIATE</text>
+  <text x="128" y="571" fill="#9bb"  font-size="10" text-anchor="middle">preflight_seq re-check</text>
+  <text x="128" y="582" fill="#9bb"  font-size="10" text-anchor="middle">SQLITE_BUSY retry</text>
+
+  <text x="128" y="608" fill="#aeb4c2" font-size="10.5" text-anchor="middle"><tspan fill="#7ee2a0">200 Stored</tspan> · <tspan fill="#f47174">409 Conflict</tspan></text>
+  <text x="128" y="622" fill="#8a90a0" font-size="10" text-anchor="middle">audit row → writes /</text>
+  <text x="128" y="634" fill="#8a90a0" font-size="10" text-anchor="middle">conflict_events</text>
+
+  <!-- =====  LANE 2: /ingest (green) — fact fast-path  ===== -->
+  <g filter="url(#shadowSm)"><rect x="220" y="252" width="136" height="56" rx="6" fill="url(#gGreen)" stroke="#3fb950"/></g>
+  <text x="288" y="270" fill="#7ee2a0" font-size="11.5" font-weight="600" text-anchor="middle">chunk (word-safe)</text>
+  <text x="288" y="284" fill="#9bb" font-size="10" text-anchor="middle">paragraph-aware</text>
+  <text x="288" y="297" fill="#9bb" font-size="10" text-anchor="middle">no mid-word slices</text>
+  <line x1="288" y1="308" x2="288" y2="392" stroke="#7ee2a0" stroke-width="1.6" marker-end="url(#green)"/>
+
+  <g filter="url(#shadowSm)"><rect x="220" y="328" width="136" height="60" rx="6" fill="url(#gGray)" stroke="#444" stroke-dasharray="3 3"/></g>
+  <text x="288" y="345" fill="#8a90a0" font-size="10.5" text-anchor="middle">SKIP normalize</text>
+  <text x="288" y="358" fill="#8a90a0" font-size="10.5" text-anchor="middle">SKIP judge</text>
+  <text x="288" y="376" fill="#6a7080" font-size="9.5" text-anchor="middle">facts upsert freely</text>
+
+  <g filter="url(#shadowSm)"><rect x="220" y="396" width="136" height="54" rx="6" fill="url(#gGreen)" stroke="#3fb950"/></g>
+  <text x="288" y="414" fill="#7ee2a0" font-size="11.5" font-weight="600" text-anchor="middle">embed (offline)</text>
+  <text x="288" y="429" fill="#9bb" font-size="10" text-anchor="middle">fastembed bge-small</text>
+  <text x="288" y="442" fill="#9bb" font-size="10" text-anchor="middle">dim=384 · outside lock</text>
+  <line x1="288" y1="450" x2="288" y2="522" stroke="#7ee2a0" stroke-width="1.6" marker-end="url(#green)"/>
+
+  <g filter="url(#shadowSm)"><rect x="220" y="460" width="136" height="46" rx="6" fill="url(#gGreen)" stroke="#3fb950"/></g>
+  <text x="288" y="478" fill="#7ee2a0" font-size="11.5" font-weight="600" text-anchor="middle">remember_fact()</text>
+  <text x="288" y="494" fill="#9bb" font-size="10" text-anchor="middle">~28 chunks/sec</text>
+
+  <g filter="url(#shadowSm)"><rect x="220" y="526" width="136" height="62" rx="6" fill="url(#gRed)" stroke="#f47174"/></g>
+  <text x="288" y="544" fill="#f47174" font-size="11.5" font-weight="600" text-anchor="middle">write-guard</text>
+  <text x="288" y="558" fill="#9bb" font-size="10" text-anchor="middle">insert claim (status=active)</text>
+  <text x="288" y="571" fill="#9bb" font-size="10" text-anchor="middle">insert vec_claims row</text>
+  <text x="288" y="582" fill="#9bb" font-size="10" text-anchor="middle">claim_seq monotonic</text>
+  <text x="288" y="610" fill="#aeb4c2" font-size="10.5" text-anchor="middle"><tspan fill="#7ee2a0">200 {chunks, stored}</tspan></text>
+    <text x="288" y="624" fill="#8a90a0" font-size="10" text-anchor="middle">N chunks / a few sec</text>
+  <text x="288" y="636" fill="#8a90a0" font-size="10" text-anchor="middle">(bulk reference docs)</text>
+
+
+  <!-- =====  LANE 3: /supersede (purple) — guarded re-write  ===== -->
+  <g filter="url(#shadowSm)"><rect x="380" y="252" width="136" height="56" rx="6" fill="url(#gPurple)" stroke="#bc8cff"/></g>
+  <text x="448" y="270" fill="#d9bcff" font-size="11.5" font-weight="600" text-anchor="middle">lookup existing</text>
+  <text x="448" y="284" fill="#9bb" font-size="10" text-anchor="middle">composite-FK</text>
+  <text x="448" y="297" fill="#9bb" font-size="10" text-anchor="middle">(org_id, project, id)</text>
+  <line x1="448" y1="308" x2="448" y2="324" stroke="#bc8cff" stroke-width="1.6" marker-end="url(#purple)"/>
+
+  <g filter="url(#shadowSm)"><rect x="380" y="328" width="136" height="46" rx="6" fill="url(#gPurple)" stroke="#bc8cff"/></g>
+  <text x="448" y="346" fill="#d9bcff" font-size="11.5" font-weight="600" text-anchor="middle">normalize + embed</text>
+  <text x="448" y="362" fill="#9bb" font-size="10" text-anchor="middle">outside lock</text>
+  <line x1="448" y1="374" x2="448" y2="390" stroke="#bc8cff" stroke-width="1.6" marker-end="url(#purple)"/>
+
+  <g filter="url(#shadowSm)"><rect x="380" y="394" width="136" height="46" rx="6" fill="url(#gPurple)" stroke="#bc8cff"/></g>
+  <text x="448" y="412" fill="#d9bcff" font-size="11.5" font-weight="600" text-anchor="middle">judge vs OTHERS</text>
+  <text x="448" y="428" fill="#9bb" font-size="10" text-anchor="middle">exclude the to-be-superseded</text>
+  <line x1="448" y1="440" x2="448" y2="456" stroke="#bc8cff" stroke-width="1.6" marker-end="url(#purple)"/>
+
+  <g filter="url(#shadowSm)"><rect x="380" y="460" width="136" height="46" rx="6" fill="url(#gPurple)" stroke="#bc8cff"/></g>
+  <text x="448" y="478" fill="#d9bcff" font-size="11.5" font-weight="600" text-anchor="middle">link supersede chain</text>
+  <text x="448" y="494" fill="#9bb" font-size="10" text-anchor="middle">old → status=superseded</text>
+  <line x1="448" y1="506" x2="448" y2="522" stroke="#bc8cff" stroke-width="1.6" marker-end="url(#purple)"/>
+
+  <g filter="url(#shadowSm)"><rect x="380" y="526" width="136" height="62" rx="6" fill="url(#gRed)" stroke="#f47174"/></g>
+  <text x="448" y="544" fill="#f47174" font-size="11.5" font-weight="600" text-anchor="middle">write-guard</text>
+  <text x="448" y="558" fill="#9bb" font-size="10" text-anchor="middle">new claim + vec row</text>
+  <text x="448" y="571" fill="#9bb" font-size="10" text-anchor="middle">UPDATE old status</text>
+  <text x="448" y="582" fill="#9bb" font-size="10" text-anchor="middle">conflict_events row</text>
+  <text x="448" y="610" fill="#aeb4c2" font-size="10.5" text-anchor="middle"><tspan fill="#7ee2a0">200 Stored</tspan></text>
+  <text x="448" y="624" fill="#8a90a0" font-size="10" text-anchor="middle">new_id supersedes old_id</text>
+
+  <!-- =====  LANE 4: /recall (blue) — read path  ===== -->
+  <g filter="url(#shadowSm)"><rect x="540" y="252" width="136" height="56" rx="6" fill="url(#gBlue)" stroke="#58a6ff"/></g>
+  <text x="608" y="270" fill="#9cd1ff" font-size="11.5" font-weight="600" text-anchor="middle">embed(query)</text>
+  <text x="608" y="284" fill="#9bb" font-size="10" text-anchor="middle">same bge-small</text>
+  <text x="608" y="297" fill="#9bb" font-size="10" text-anchor="middle">dim=384 (locked)</text>
+  <line x1="608" y1="308" x2="608" y2="324" stroke="#58a6ff" stroke-width="1.6" marker-end="url(#blue)"/>
+
+  <g filter="url(#shadowSm)"><rect x="540" y="328" width="136" height="56" rx="6" fill="url(#gBlue)" stroke="#58a6ff"/></g>
+  <text x="608" y="346" fill="#9cd1ff" font-size="11.5" font-weight="600" text-anchor="middle">sqlite-vec KNN</text>
+  <text x="608" y="360" fill="#9bb" font-size="10" text-anchor="middle">vec_claims MATCH</text>
+  <text x="608" y="373" fill="#9bb" font-size="10" text-anchor="middle">k = limit × 8, cosine</text>
+  <line x1="608" y1="384" x2="608" y2="400" stroke="#58a6ff" stroke-width="1.6" marker-end="url(#blue)"/>
+
+  <g filter="url(#shadowSm)"><rect x="540" y="404" width="136" height="46" rx="6" fill="url(#gBlue)" stroke="#58a6ff"/></g>
+  <text x="608" y="422" fill="#9cd1ff" font-size="11.5" font-weight="600" text-anchor="middle">join claims</text>
+  <text x="608" y="438" fill="#9bb" font-size="10" text-anchor="middle">status='active' filter</text>
+  <line x1="608" y1="450" x2="608" y2="466" stroke="#58a6ff" stroke-width="1.6" marker-end="url(#blue)"/>
+
+  <g filter="url(#shadowSm)"><rect x="540" y="470" width="136" height="46" rx="6" fill="url(#gBlue)" stroke="#58a6ff"/></g>
+  <text x="608" y="488" fill="#9cd1ff" font-size="11.5" font-weight="600" text-anchor="middle">hybrid score</text>
+  <text x="608" y="504" fill="#9bb" font-size="10" text-anchor="middle">0.7 × vec + 0.3 × kw</text>
+  <line x1="608" y1="516" x2="608" y2="532" stroke="#58a6ff" stroke-width="1.6" marker-end="url(#blue)"/>
+
+  <g filter="url(#shadowSm)"><rect x="540" y="536" width="136" height="50" rx="6" fill="url(#gBlue)" stroke="#58a6ff"/></g>
+  <text x="608" y="554" fill="#9cd1ff" font-size="11.5" font-weight="600" text-anchor="middle">sort &amp; limit</text>
+  <text x="608" y="570" fill="#9bb" font-size="10" text-anchor="middle">top N · {id, statement,</text>
+  <text x="608" y="581" fill="#9bb" font-size="10" text-anchor="middle">reason, score, vec, kw}</text>
+  <text x="608" y="610" fill="#aeb4c2" font-size="10.5" text-anchor="middle"><tspan fill="#9cd1ff">200 {results: [...]}</tspan></text>
+  <text x="608" y="624" fill="#8a90a0" font-size="10" text-anchor="middle">no writes · no embeddings</text>
+  <text x="608" y="636" fill="#8a90a0" font-size="10" text-anchor="middle">touched</text>
+
+  <!-- =====  LANE 5: /why (teal) — reasoned belief  ===== -->
+  <g filter="url(#shadowSm)"><rect x="700" y="252" width="140" height="56" rx="6" fill="url(#gTeal)" stroke="#5fd9c6"/></g>
+  <text x="770" y="270" fill="#7ee2cd" font-size="11.5" font-weight="600" text-anchor="middle">recall(reasoned)</text>
+  <text x="770" y="284" fill="#9bb" font-size="10" text-anchor="middle">reasoned_only=True</text>
+  <text x="770" y="297" fill="#9bb" font-size="10" text-anchor="middle">facts can't win a 'why'</text>
+  <line x1="770" y1="308" x2="770" y2="324" stroke="#5fd9c6" stroke-width="1.6" marker-end="url(#teal)"/>
+
+  <g filter="url(#shadowSm)"><rect x="700" y="328" width="140" height="46" rx="6" fill="url(#gTeal)" stroke="#5fd9c6"/></g>
+  <text x="770" y="346" fill="#7ee2cd" font-size="11.5" font-weight="600" text-anchor="middle">top REASONED hit</text>
+  <text x="770" y="362" fill="#9bb" font-size="10" text-anchor="middle">claim · reason · score</text>
+  <line x1="770" y1="374" x2="770" y2="390" stroke="#5fd9c6" stroke-width="1.6" marker-end="url(#teal)"/>
+
+  <g filter="url(#shadowSm)"><rect x="700" y="394" width="140" height="80" rx="6" fill="url(#gTeal)" stroke="#5fd9c6"/></g>
+  <text x="770" y="413" fill="#7ee2cd" font-size="11.5" font-weight="600" text-anchor="middle">walk supersede chain</text>
+  <text x="770" y="430" fill="#9bb" font-size="10" text-anchor="middle">id → supersedes → ...</text>
+  <text x="770" y="444" fill="#9bb" font-size="10" text-anchor="middle">newest → oldest</text>
+  <text x="770" y="461" fill="#9bb" font-size="10" text-anchor="middle">each w/ revision reason</text>
+  <line x1="770" y1="474" x2="770" y2="498" stroke="#5fd9c6" stroke-width="1.6" marker-end="url(#teal)"/>
+
+  <g filter="url(#shadowSm)"><rect x="700" y="502" width="140" height="86" rx="6" fill="url(#gTeal)" stroke="#5fd9c6"/></g>
+  <text x="770" y="521" fill="#7ee2cd" font-size="11.5" font-weight="600" text-anchor="middle">return belief +</text>
+  <text x="770" y="535" fill="#7ee2cd" font-size="11.5" font-weight="600" text-anchor="middle">reason + history</text>
+  <text x="770" y="555" fill="#9bb" font-size="10" text-anchor="middle">{claim, reason, score,</text>
+  <text x="770" y="568" fill="#9bb" font-size="10" text-anchor="middle">history: [{id,claim,reason}]}</text>
+  <text x="770" y="610" fill="#aeb4c2" font-size="10.5" text-anchor="middle"><tspan fill="#5fd9c6">200 {why: ...}</tspan></text>
+  <text x="770" y="624" fill="#8a90a0" font-size="10" text-anchor="middle">or null if no reasoned</text>
+  <text x="770" y="636" fill="#8a90a0" font-size="10" text-anchor="middle">match</text>
+
+  <!-- arrows from each lane bottom toward the store -->
+  <line x1="128" y1="650" x2="128" y2="700" stroke="#d29922" stroke-width="1.4" marker-end="url(#amber)"/>
+  <line x1="288" y1="650" x2="288" y2="700" stroke="#7ee2a0" stroke-width="1.4" marker-end="url(#green)"/>
+  <line x1="448" y1="650" x2="448" y2="700" stroke="#bc8cff" stroke-width="1.4" marker-end="url(#purple)"/>
+  <line x1="608" y1="700" x2="608" y2="650" stroke="#58a6ff" stroke-width="1.4" stroke-dasharray="4 3" marker-end="url(#blue)"/>
+  <line x1="770" y1="700" x2="770" y2="650" stroke="#5fd9c6" stroke-width="1.4" stroke-dasharray="4 3" marker-end="url(#teal)"/>
+  </g>
+  <!-- /DATA FLOW -->
+
+  <!-- merge connectors into the store (gap 858 -> 888) -->
+  <line x1="128" y1="860" x2="128" y2="888" stroke="#d29922" stroke-width="1.4" marker-end="url(#amber)"/>
+  <line x1="288" y1="860" x2="288" y2="888" stroke="#7ee2a0" stroke-width="1.4" marker-end="url(#green)"/>
+  <line x1="448" y1="860" x2="448" y2="888" stroke="#bc8cff" stroke-width="1.4" marker-end="url(#purple)"/>
+  <line x1="608" y1="888" x2="608" y2="860" stroke="#58a6ff" stroke-width="1.4" stroke-dasharray="4 3" marker-end="url(#blue)"/>
+  <line x1="770" y1="888" x2="770" y2="860" stroke="#5fd9c6" stroke-width="1.4" stroke-dasharray="4 3" marker-end="url(#teal)"/>
+
+  <!-- ====================================================================== -->
+  <!-- 5. STORE (one SQLite file)                                             -->
+  <!-- ====================================================================== -->
+  <g filter="url(#shadowLg)">
+    <rect x="40" y="892" width="820" height="270" rx="10" fill="url(#gSqlite)" stroke="#1f3a2c"/>
+  </g>
+  <rect x="40" y="892" width="820" height="14" rx="10" fill="url(#sheen)" pointer-events="none"/>
+  <text x="56" y="914" fill="#7ee2a0" font-size="11" letter-spacing="1.5">STORE &nbsp;— ONE SQLite file <tspan fill="#d6e3ff">(ergo.db)</tspan></text>
+  <text x="56" y="930" fill="#8a90a0" font-size="10">the five-table schema below is the engine's single store · same schema whether legacy or fresh</text>
+
+
+  <!-- claims / vec_claims / audit (reused, shifted +158 from original 770 -> 928) -->
+  <g transform="translate(0,158)">
+  <g filter="url(#shadowSm)">
+    <rect x="60"  y="778" width="260" height="190" rx="8" fill="url(#gGreen)" stroke="#3fb950"/>
+  </g>
+  <text x="190" y="798" fill="#7ee2a0" font-size="13" font-weight="600" text-anchor="middle">claims  <tspan fill="#9bb" font-size="11" font-weight="400">(the truth)</tspan></text>
+  <text x="74" y="818" fill="#cdd3df" font-size="11">id (ULID)  ·  org_id  ·  project  ·  who</text>
+  <text x="74" y="834" fill="#cdd3df" font-size="11">statement  ·  reason</text>
+  <text x="74" y="850" fill="#cdd3df" font-size="11">norm (JSON: modality · subj · scope · time)</text>
+  <text x="74" y="866" fill="#cdd3df" font-size="11">status: <tspan fill="#7ee2a0">active</tspan> | <tspan fill="#8a90a0">superseded</tspan> | <tspan fill="#f47174">retracted</tspan></text>
+  <text x="74" y="882" fill="#cdd3df" font-size="11">supersedes → composite-FK (org, project, id)</text>
+  <text x="74" y="898" fill="#cdd3df" font-size="11">claim_seq  (monotonic, race-safe)</text>
+  <text x="74" y="914" fill="#cdd3df" font-size="11">conflict_exception · normalizer_id</text>
+  <text x="74" y="930" fill="#cdd3df" font-size="11">judge_version · norm_schema_version</text>
+  <text x="74" y="950" fill="#7ee2a0" font-size="11">UNIQUE (org_id, project, claim_seq)</text>
+  <text x="74" y="964" fill="#7ee2a0" font-size="11">indexed: (org, project, status), (claim_seq)</text>
+
+  <g filter="url(#shadowSm)">
+    <rect x="332" y="778" width="232" height="190" rx="8" fill="url(#gBlue)" stroke="#58a6ff"/>
+  </g>
+  <text x="448" y="798" fill="#9cd1ff" font-size="13" font-weight="600" text-anchor="middle">vec_claims  <tspan fill="#9bb" font-size="11" font-weight="400">(KNN index)</tspan></text>
+  <text x="344" y="818" fill="#cdd3df" font-size="11">virtual table USING vec0</text>
+  <text x="344" y="834" fill="#cdd3df" font-size="11">claim_id (PK) → claims.id (1:1)</text>
+  <text x="344" y="850" fill="#cdd3df" font-size="11">embedding float[384] cosine</text>
+  <text x="344" y="870" fill="#cdd3df" font-size="11">populated by /remember + /ingest</text>
+  <text x="344" y="886" fill="#cdd3df" font-size="11">  + /supersede (new row only)</text>
+  <text x="344" y="906" fill="#cdd3df" font-size="11">/recall: <tspan fill="#9cd1ff">MATCH ? k = ?</tspan></text>
+  <text x="344" y="926" fill="#cdd3df" font-size="11">superseded vec rows kept; the</text>
+  <text x="344" y="942" fill="#cdd3df" font-size="11">JOIN on status='active' filters them</text>
+  <text x="344" y="960" fill="#7ee2a0" font-size="11">no vec deletes on supersede</text>
+
+  <g filter="url(#shadowSm)">
+    <rect x="576" y="778" width="264" height="90" rx="8" fill="url(#gAmber)" stroke="#d29922"/>
+    <rect x="576" y="876" width="264" height="92" rx="8" fill="url(#gRed)" stroke="#f47174"/>
+  </g>
+  <text x="708" y="798" fill="#f0c674" font-size="13" font-weight="600" text-anchor="middle">writes  <tspan fill="#9bb" font-size="11" font-weight="400">(audit)</tspan></text>
+  <text x="590" y="818" fill="#cdd3df" font-size="11">action · who · claim_id</text>
+  <text x="590" y="834" fill="#cdd3df" font-size="11">preflight_seq · commit_seq · ts</text>
+  <text x="590" y="854" fill="#f0c674" font-size="11">actions: remember · remember_fact</text>
+  <text x="590" y="866" fill="#f0c674" font-size="11">  supersede · store_with_exception</text>
+
+  <text x="708" y="896" fill="#f47174" font-size="13" font-weight="600" text-anchor="middle">conflict_events  <tspan fill="#9bb" font-size="11" font-weight="400">(audit)</tspan></text>
+  <text x="590" y="916" fill="#cdd3df" font-size="11">tier · score · source · reason</text>
+  <text x="590" y="932" fill="#cdd3df" font-size="11">resolution: flagged · warned ·</text>
+  <text x="590" y="944" fill="#cdd3df" font-size="11">  exception · superseded</text>
+  <text x="590" y="960" fill="#f47174" font-size="11">+ projects (org_id, project, created_at)</text>
+  </g>
+  <!-- /store schema (translated) -->
+
+  <!-- ====================================================================== -->
+  <!-- 6. IMAGE BAKE (reused verbatim, shifted +188)                           -->
+  <!-- ====================================================================== -->
+  <g transform="translate(0,188)">
+  <g filter="url(#shadowLg)">
+    <rect x="40" y="990" width="820" height="116" rx="10" fill="url(#gImage)" stroke="#3a2f54"/>
+  </g>
+  <rect x="40" y="990" width="820" height="14" rx="10" fill="url(#sheen)" pointer-events="none"/>
+  <text x="56" y="1012" fill="#bc8cff" font-size="11" letter-spacing="1.5">IMAGE &nbsp;<tspan fill="#d6e3ff">ergo:merge</tspan> &nbsp;(~1.14 GB on disk · ~400 MB compressed) &nbsp;— offline-verified by no-network boot test</text>
+
+  <g filter="url(#shadowSm)">
+    <rect x="60"  y="1030" width="138" height="58" rx="6" fill="url(#gSlot)"  stroke="#39414f"/>
+    <rect x="208" y="1030" width="138" height="58" rx="6" fill="url(#gGreen)" stroke="#3fb950"/>
+    <rect x="356" y="1030" width="138" height="58" rx="6" fill="url(#gPurple)" stroke="#bc8cff"/>
+    <rect x="504" y="1030" width="170" height="58" rx="6" fill="url(#gAmber)" stroke="#d29922" stroke-dasharray="4 3"/>
+    <rect x="684" y="1030" width="156" height="58" rx="6" fill="url(#gRed)"   stroke="#f47174"/>
+  </g>
+  <text x="129" y="1049" fill="#cdd3df" font-size="11.5" text-anchor="middle" font-weight="600">app + sqlite-vec</text>
+  <text x="129" y="1063" fill="#9bb" font-size="9.5" text-anchor="middle">bounded ThreadingHTTP</text>
+  <text x="129" y="1075" fill="#9bb" font-size="9.5" text-anchor="middle">RLock · vec0</text>
+
+  <text x="277" y="1051" fill="#7ee2a0" font-size="11.5" text-anchor="middle" font-weight="600">embedder (BAKED)</text>
+  <text x="277" y="1066" fill="#9bb" font-size="10" text-anchor="middle">bge-small ~130 MB</text>
+  <text x="277" y="1078" fill="#9bb" font-size="10" text-anchor="middle">dim=384, ONNX</text>
+
+  <text x="425" y="1051" fill="#d9bcff" font-size="11.5" text-anchor="middle" font-weight="600">NLI judge (BAKED)</text>
+  <text x="425" y="1066" fill="#9bb" font-size="10" text-anchor="middle">deberta-v3 quant ~190 MB</text>
+  <text x="425" y="1078" fill="#9bb" font-size="10" text-anchor="middle">onnxruntime, no torch</text>
+
+  <text x="589" y="1051" fill="#f0c674" font-size="11.5" text-anchor="middle" font-weight="600">instruct LLM (REMOTE)</text>
+  <text x="589" y="1066" fill="#9bb" font-size="10" text-anchor="middle">LiteLLM/Anthropic/OpenAI</text>
+  <text x="589" y="1078" fill="#9bb" font-size="10" text-anchor="middle">Ollama fallback (air-gap)</text>
+
+  <text x="762" y="1051" fill="#f47174" font-size="11.5" text-anchor="middle" font-weight="600">CI no-network gate</text>
+  <text x="762" y="1066" fill="#9bb" font-size="10" text-anchor="middle">socket.getaddrinfo blocked</text>
+  <text x="762" y="1078" fill="#9bb" font-size="10" text-anchor="middle">build fails on silent fetch</text>
+  </g>
+  <!-- /IMAGE -->
+
+    <!-- ====================================================================== -->
+  <!-- 7. CONTROL / OPS ENDPOINTS                                              -->
+  <!-- ====================================================================== -->
+
+  <g filter="url(#shadowLg)">
+    <rect x="40" y="1310" width="820" height="90" rx="10" fill="url(#gPanel)" stroke="#2a2f3a"/>
+  </g>
+  <rect x="40" y="1310" width="820" height="14" rx="10" fill="url(#sheen)" pointer-events="none"/>
+  <text x="56" y="1332" fill="#8a90a0" font-size="11" letter-spacing="1.5">CONTROL &amp; OPS &nbsp;— read-only, <tspan fill="#7ee2a0">/health</tspan> open (no auth)</text>
+  <g filter="url(#shadowSm)">
+    <rect x="60"  y="1340" width="150" height="24" rx="5" fill="url(#gSlot)" stroke="#39414f"/>
+    <rect x="220" y="1340" width="150" height="24" rx="5" fill="url(#gSlot)" stroke="#39414f"/>
+    <rect x="380" y="1340" width="150" height="24" rx="5" fill="url(#gSlot)" stroke="#39414f"/>
+    <rect x="540" y="1340" width="150" height="24" rx="5" fill="url(#gSlot)" stroke="#39414f"/>
+    <rect x="700" y="1340" width="150" height="24" rx="5" fill="url(#gSlot)" stroke="#39414f"/>
+  </g>
+  <text x="135" y="1357" fill="#cdd3df" font-size="11" text-anchor="middle"><tspan fill="#7ee2a0">GET /health</tspan></text>
+  <text x="295" y="1357" fill="#cdd3df" font-size="11" text-anchor="middle"><tspan fill="#9cd1ff">GET /diagnose</tspan></text>
+  <text x="455" y="1357" fill="#cdd3df" font-size="11" text-anchor="middle"><tspan fill="#9cd1ff">GET /active</tspan> ?org,proj</text>
+  <text x="615" y="1357" fill="#cdd3df" font-size="11" text-anchor="middle"><tspan fill="#9cd1ff">GET /history</tspan> ?org,proj</text>
+  <text x="775" y="1357" fill="#cdd3df" font-size="11" text-anchor="middle"><tspan fill="#8a90a0">+ 401 if no token</tspan></text>
+
+  
+
+  <!-- ====================================================================== -->
+  <!-- 8. VERIFIED EVAL BANNER (reused verbatim, shifted +212)                 -->
+  <!-- ====================================================================== -->
+  <g transform="translate(0,212)">
+  <g filter="url(#shadowSm)">
+    <rect x="40" y="1198" width="820" height="72" rx="10" fill="url(#gGray)" stroke="#5a6273"/>
+  </g>
+  <text x="56" y="1218" fill="#8a90a0" font-size="11" letter-spacing="1.2">EVAL — labeled prose set (105 pairs, 60 negs harvested from engine's own FPs, non-circular)</text>
+  <text x="56" y="1240" fill="#cdd3df" font-size="11.5">NLI on (gated) → <tspan fill="#7ee2a0">P=0.957 · R=0.733 · F1=0.830 · 0 false hard-blocks</tspan> &nbsp;·&nbsp; container smoke ✓, 0 silent misses · unit suite ✓</text>
+    <text x="56" y="1258" fill="#cdd3df" font-size="11.5">Bulk reference ingest via the fact fast-path: <tspan fill="#7ee2a0">orders of magnitude faster</tspan> than routing the same docs through the guarded write path</text>
+
+  </g>
+
+</svg>
+
+<div class="panel">
+  
+
+  <div class="flow" style="border-color:#f0c674">
+    <b>Bounded threading, single store</b><br>
+    <span>The server is a <code>ThreadingHTTPServer</code> capped by a per-instance
+    <code>BoundedSemaphore(ERGO_HTTP_MAX_WORKERS, default 8)</code>, so a slow guarded write can't
+    head-of-line-block another read. The store opens <code>check_same_thread=False</code> and guards every method
+    with its OWN <code>RLock</code> while <code>BEGIN IMMEDIATE</code> +
+    <code>SQLITE_BUSY</code> retry stays the per-database serializer.</span>
+
+  </div>
+
+  <h2>Five flow lanes</h2>
+
+  <div class="flow" style="border-color:#f0c674">
+    <b>1. POST /remember</b> &nbsp;<code>guarded</code> &nbsp;·&nbsp; <b>+ /learn</b><br>
+    <span>The write you want contradiction-checked (decisions, constraints).
+    Normalize → structural compare → NLI residual (overlap-gated) → judge tier → write-guard. Returns
+    <code>200 Stored</code> or <code>409 Conflict</code>. <code>/learn</code> runs the SAME firewall but folds a
+    required <code>source</code> into the reason. Every flag goes to <code>conflict_events</code>.</span>
+  </div>
+
+  <div class="flow" style="border-color:#7ee2a0">
+    <b>2. POST /ingest</b> &nbsp;<code>fact fast-path</code><br>
+    <span>Bulk document ingest. Word-safe chunker (no mid-word slices) → embed each chunk → <code>remember_fact()</code>
+    skips normalize+judge per the README rule "fact = upsert freely". a bulk batch of reference docs ingests in seconds</span>
+  </div>
+
+  <div class="flow" style="border-color:#d9bcff">
+    <b>3. POST /supersede</b> &nbsp;<code>change of mind</code> &nbsp;·&nbsp; <b>/retract</b> <code>wrong-at-birth</code><br>
+    <span>Look up old claim by composite-FK <code>(org_id, project, id)</code> → normalize+embed the new one outside the lock →
+    judge against OTHER actives (the to-be-superseded is excluded) → in one txn: UPDATE old to
+    <code>status='superseded'</code>, INSERT new with <code>supersedes</code> pointer + vec row. The chain
+    is what powers <code>/why</code>'s history. <code>/retract</code> instead flips a wrong-at-birth claim to
+    <code>retracted</code> — no gate, no new row.</span>
+  </div>
+
+  <div class="flow" style="border-color:#9cd1ff">
+    <b>4. GET /recall</b> &nbsp;<code>hybrid search</code><br>
+    <span>Embed query with the same baked bge-small → <code>vec_claims MATCH k = limit × 8</code> (cosine) →
+    JOIN <code>claims</code> with <code>status='active'</code> (superseded rows are structurally excluded; no vec
+    deletes needed) → blend <code>0.7 × vec_sim + 0.3 × word_overlap</code> → sort and return top N.</span>
+  </div>
+
+  <div class="flow" style="border-color:#5fd9c6">
+    <b>5. GET /why</b> &nbsp;<code>reasoned belief</code><br>
+    <span><code>recall(reasoned_only=True)</code> so a reason-less fact can never win a "why" query → take the top reasoned hit →
+    walk the supersede chain backwards from its id → return <code>{claim, reason, score, history: [...]}</code>
+    with each historical entry's revision reason. The whole point of Ergo, in one endpoint.</span>
+  </div>
+
+  <h2>What lives where</h2>
+
+  <div class="flow" style="border-color:#7ee2a0">
+    <b>Five tables, one store</b><br>
+    <span><code>claims</code> (the truth — statement, reason, norm, status, supersedes, claim_seq) ·
+    <code>vec_claims</code> (1:1 with claims, sqlite-vec virtual table, cosine KNN) ·
+    <code>writes</code> &amp; <code>conflict_events</code> (full audit) ·
+    <code>projects</code> (org/project registry). Backup is one <code>VACUUM INTO</code> away.</span>
+
+  </div>
+
+  <div class="flow" style="border-color:#9cd1ff">
+    <b>Why no vec-row deletes on supersede</b><br>
+    <span>The supersede flow inserts a NEW <code>vec_claims</code> row and UPDATEs the old <code>claims.status</code>
+    to <code>superseded</code>. <code>/recall</code> joins on <code>status='active'</code> so superseded vectors
+    are structurally excluded from results — no expensive index deletes, history stays walkable.</span>
+  </div>
+
+  <div class="flow" style="border-color:#f0c674">
+    <b>Write-guard (race-safe SQLite)</b><br>
+    <span>Preflight read snapshot is closed BEFORE judge runs. Commit phase is <code>BEGIN IMMEDIATE</code>
+    + <code>preflight_seq</code> recheck → retry on race. <code>SQLITE_BUSY</code> bounded backoff with jitter, never silent inserts
+    on a stale snapshot.</span>
+  </div>
+
+  <h2>The bet</h2>
+
+  <div class="flow" style="border-color:#f0c674">
+    <b>normalize → structural → NLI</b><br>
+    <span>NLI alone is roughly lexical (P ≈ 0.58). The MVP bet was always that <i>normalizing first</i>, then using NLI only
+    on the fuzzy residual <i>with an overlap gate</i>, would beat both pieces alone. Labeled prose eval:
+    <b>P=0.957, R=0.733, F1=0.830, 0 false hard-blocks</b>.</span>
+  </div>
+
+  <div class="flow" style="border-color:#bc8cff">
+    <b>Image: NLI + embedder + sqlite-vec baked, instruct LLM remote</b><br>
+    <span><code>ergo:merge</code> bakes the embedder (bge-small, 130 MB) and NLI (deberta-v3 quant, 190 MB) into one
+    Python 3.12 slim image and loads <code>sqlite-vec</code> at boot. Instruct LLM is HTTPS to LiteLLM/Anthropic;
+    air-gap fallback is <code>ERGO_LLM_PROVIDER=ollama</code> — same image, different env. Boot test blocks
+    <code>socket.getaddrinfo</code> and reloads everything offline; build fails on any silent fetch.</span>
+  </div>
+
+  <div class="flow" style="border-color:#5a6273">
+    <b>Owner-in-the-binary (anti-zombie)</b><br>
+    <span><code>/diagnose</code> surfaces <code>owner_name</code>, <code>owner_contact</code>, <code>backup_path</code>,
+    <code>last_backup_at</code>, <code>last_write_at</code>, <code>kill_review_date</code> — never buried in a README.
+    Three empty-store states (UNINITIALIZED / EMPTY_PROJECT / NO_MATCH) so "no answer" can never be ambiguous.</span>
+  </div>
+
+  <h2>Status</h2>
+
+  <div class="flow" style="border-color:#7ee2a0">
+    <b>Merge shipped</b><br>
+    <span>Retrieval lives <i>inside</i> the contradiction store — the two halves of the README ("remembers why AND
+    catches itself contradicting") are ONE engine in ONE image. This is merged to
+    <code>main</code> (backward-compatible; legacy single-token flow preserved). Live cutover to the running
+    container is a separate, explicit step.</span>
+  </div>
+
+  <div class="flow" style="border-color:#f0c674">
+    <b>Open follow-ups</b><br>
+    <span>Chunker can split an attribute from its keyword (table-aware chunking would lift top-1 recall).
+    Lexical half of hybrid is word-overlap, not pg_trgm. Per-project access is a namespace, not yet an auth boundary
+    (deferred in the MVP).</span>
+  </div>
+</div>
+</div>
+
+<div class="stats">
+  <div class="stat"><b>P=0.957 / R=0.733 / F1=0.830</b> &nbsp;labeled prose eval (105 pairs)</div>
+  <div class="stat muted"><b>smoke ✓</b> &nbsp;container smoke (0 false blocks, 0 silent misses)</div>
+  <div class="stat muted"><b>unit ✓</b> &nbsp;firewall + retrieval + isolation suites</div>
+  
+  <div class="stat muted"><b>1 image</b> &nbsp;<code>ergo:merge</code> ~1.14 GB · no-network boot ✓</div>
+</div>
+
+<div class="legend">
+  <div><span class="sw" style="background:#f0c674"></span> /remember + /learn (guarded write)</div>
+  <div><span class="sw" style="background:#7ee2a0"></span> /ingest (fact fast-path)</div>
+  <div><span class="sw" style="background:#bc8cff"></span> /supersede</div>
+  <div><span class="sw" style="background:#58a6ff"></span> /recall (read, hybrid)</div>
+  <div><span class="sw" style="background:#5fd9c6"></span> /why (reasoned + history)</div>
+  <div><span class="sw" style="background:#f47174"></span> write-guard / retract / hard fail</div>
+  <div><span class="sw" style="background:#9aa"></span> control / SQL</div>
+</div>
+
+<footer style="padding:14px 28px;color:#5a6273;font-size:11px;border-top:1px solid #222;background:#0a0c11">
+  <i>Architecture v4 — the merged engine: the contradiction firewall
+  (<code>ergo/contradiction/</code>) and the retrieval verbs (<code>recall</code> / <code>why</code> / <code>ingest</code>)
+  live in the SAME SQLite + sqlite-vec store.
+  Seven core verbs, five data-flow lanes, one audit trail.</i>
+</footer>
+
+</body>
+</html>

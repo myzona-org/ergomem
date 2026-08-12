@@ -1,0 +1,30 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+.env
+.pytest_cache/
+.fastembed_cache/
+docker-model/
+.DS_Store
+
+# JS/TS plugin packages (plugins/openclaw/**) -- never commit installed deps
+node_modules/
+
+# local agent tooling and credentials
+opencode.json
+.opencode/
+AGENTS.md
+
+# eval LLM-extraction cache
+evals/contradiction/.cache/
+
+docs/architecture.html.pre-edit-*
+
+# deploy-check state (default lives outside the repo now; this is
+# belt-and-suspenders in case ERGO_DEPLOY_CHECK_STATE is ever pointed in-repo)
+/.ergo-deploy-check.json
+

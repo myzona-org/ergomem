@@ -1,0 +1,105 @@
+name: ci
+
+# Public-repo CI, written fresh for this export -- not a copy of the private
+# repo's workflow. Deliberately GitHub-hosted only, no self-hosted labels and
+# no secrets: the private repo's own CI runs on a self-hosted runner shared
+# with other private jobs, which must never execute code from a public
+# fork's pull_request.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      # The suite is offline except the fastembed model (~130 MB); cache it
+      # so only the first run on a given cache key downloads it -- GitHub-
+      # hosted runners are ephemeral, so this cache is the only thing that
+      # persists across runs (see docs/DEVELOPMENT.md).
+      - name: Cache fastembed model
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ~/.cache/fastembed_cache
+          key: fastembed-BAAI-bge-small-en-v1.5
+
+      - name: Install (full dev/test surface)
+        run: pip install -e ".[dev]"
+
+      - name: Warm embedder cache
+        run: |
+          python -c "
+          from fastembed import TextEmbedding
+          import os
+          TextEmbedding(model_name='BAAI/bge-small-en-v1.5',
+                        cache_dir=os.path.expanduser('~/.cache/fastembed_cache'))
+          "
+
+      # -m 'not real_model' deselects the real-quantized-NLI-judge tests,
+      # which need a locally cached ONNX model this ephemeral runner never
+      # has -- they always skip here, same as they would on any fresh
+      # machine. The authoritative real-model check is the Docker image
+      # build itself (docker/boot-test.py bakes and verifies the same model
+      # with no network at boot).
+      - name: Run tests
+        run: python -m pytest -q -m 'not real_model'
+
+  # The OpenClaw plugin (plugins/openclaw/ergo/) is TypeScript, run with
+  # Node's native type-stripping -- no build step, no bundler. A separate
+  # job (not a step in `test` above) so a plugin test failure never blocks
+  # or gets blocked by the unrelated Python suite, and so this repo's
+  # Python-only contributors see a clearly separate check name.
+  openclaw-plugin-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+
+      # --omit=peer: `openclaw` is declared as a peerDependency for its type
+      # declarations only (see plugins/openclaw/ergo/README.md) -- installing
+      # it here would pull the entire OpenClaw package (~300 packages) just
+      # to run a test suite that never imports it. No lockfile is committed
+      # (same README section), so this is a fresh resolve every run.
+      - name: Install plugin dependencies
+        working-directory: plugins/openclaw/ergo
+        run: npm install --no-audit --no-fund --omit=peer
+
+      - name: Run plugin tests
+        working-directory: plugins/openclaw/ergo
+        run: npm test
+
+  # This IS the "authoritative real-model check" the `test` job's comment
+  # above refers to: `docker build .` runs docker/boot-test.py as a RUN step
+  # (see Dockerfile) that blocks all outbound DNS resolution and then loads
+  # every baked model, so the build itself fails if a model silently needs
+  # the network at boot. GitHub-hosted, no secrets -- just a build, no push.
+  docker-build:
+    runs-on: ubuntu-latest
+    # A local no-cache build takes ~35s -- 5 minutes is generous headroom for
+    # a slower/cold GitHub-hosted runner while still failing fast if the
+    # no-network boot-test step ever hangs instead of failing outright.
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Build image (bakes + boot-tests the real models, no network at boot)
+        run: docker build -t ergo:ci .
