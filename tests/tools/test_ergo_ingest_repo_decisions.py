@@ -77,6 +77,43 @@ def test_curated_selection_includes_only_the_whitelist(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# 1b. BADGE_OR_LINK_ONLY_RE — ReDoS fix (CodeQL alerts 1+2): the original
+# `(!?\[.*?\]\(.*?\)\s*)+` backtracked exponentially on repeated `[]()`
+# groups with no terminator. Negated character classes remove the ambiguity.
+# ---------------------------------------------------------------------------
+@pytest.mark.parametrize("line,expected", [
+    ("[a](b)", True),
+    ("![img](u)  [x](y)", True),
+    ("  [a](b) .", True),
+    ("[a](b) trailing text", False),
+    ("not a link", False),
+    ("![badge](https://shields.io/x) [ci](https://ci/y)", True),
+    ("", False),
+    # Regression caught by test_extract_candidates_from_sample_claude_md:
+    # the canonical clickable-CI-badge idiom, a link whose text is a single
+    # embedded image. A naive `[^\]]*` link-text class (stops at the badge's
+    # own `]`) fails to filter this -- it needs the explicit nested-image
+    # alternative in _LINK_TEXT.
+    ("[![Build Status](https://ci.example.com/badge.svg)](https://ci.example.com)", True),
+])
+def test_badge_or_link_only_re_equivalence(line, expected):
+    assert bool(eir.BADGE_OR_LINK_ONLY_RE.match(line)) == expected
+
+
+def test_badge_or_link_only_re_is_linear_time_not_exponential():
+    """ReDoS regression: `"[]()" * 20 + "@"` (81 bytes, unterminated) took
+    ~15s pre-fix on the exponential-backtracking pattern (growth is ~x7 per
+    2 extra reps). The fixed pattern is sub-millisecond; a generous 2s
+    ceiling keeps this from flaking on a loaded CI box either way."""
+    import time
+
+    pathological = "[]()" * 20 + "@"
+    start = time.monotonic()
+    eir.BADGE_OR_LINK_ONLY_RE.match(pathological)
+    assert time.monotonic() - start < 2.0
+
+
+# ---------------------------------------------------------------------------
 # 2. Extraction — markdown -> candidate decision statements.
 # ---------------------------------------------------------------------------
 SAMPLE_CLAUDE_MD = """\

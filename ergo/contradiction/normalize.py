@@ -131,6 +131,44 @@ def _shift_date(iso: str, days: int) -> str:
         return iso
 
 
+def _strip_think_blocks(s: str) -> str:
+    """Remove every `<think>...</think>` span, linear in len(s).
+
+    Replaces the O(n^2) `re.sub(r"<think>.*?</think>", "", s, flags=re.S)`,
+    whose lazy `.*?` rescans from every `<think>` occurrence looking for a
+    close tag (CodeQL ReDoS alert). An unterminated `<think>` (no matching
+    `</think>`) is left untouched, same as the regex it replaces."""
+    out, i = [], 0
+    while True:
+        a = s.find("<think>", i)
+        if a == -1:
+            out.append(s[i:])
+            return "".join(out)
+        b = s.find("</think>", a + 7)
+        if b == -1:
+            out.append(s[i:])
+            return "".join(out)
+        out.append(s[i:a])
+        i = b + 8
+
+
+def _extract_fenced(s: str) -> str | None:
+    """Return the content of the first ```-fenced block, or None if absent.
+
+    Replaces the O(n^2) ``r"```(?:json)?\\s*(.*?)```"`` regex (CodeQL ReDoS
+    alert) with an index-based scan."""
+    a = s.find("```")
+    if a == -1:
+        return None
+    j = a + 3
+    if s[j:j + 4].lower() == "json":
+        j += 4
+    while j < len(s) and s[j].isspace():
+        j += 1
+    b = s.find("```", j)
+    return None if b == -1 else s[j:b]
+
+
 class Normalizer(Protocol):
     def normalize(self, claim: dict) -> dict: ...
 
@@ -567,11 +605,11 @@ class _LLMNormalizerBase:
           - pure refusal prose with no JSON at all
         """
         # 1. strip reasoning-model think blocks
-        content = re.sub(r"<think>.*?</think>", "", content, flags=re.S).strip()
+        content = _strip_think_blocks(content).strip()
         # 2. strip markdown code fences (```json ... ``` or ``` ... ```)
-        fence = re.search(r"```(?:json)?\s*(.*?)```", content, flags=re.S | re.I)
-        if fence:
-            content = fence.group(1).strip()
+        fenced = _extract_fenced(content)
+        if fenced is not None:
+            content = fenced.strip()
         # 3. fast path: it's already clean JSON (object or array)
         try:
             return _LLMNormalizerBase._first_object(json.loads(content))

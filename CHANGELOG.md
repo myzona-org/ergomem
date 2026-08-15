@@ -9,7 +9,7 @@ none.
 
 ## [Unreleased]
 
-Nothing yet — entries land here as changes ship after the first release below.
+- Fix 5 ReDoS findings in the normalizer, ingest tool, and OpenClaw client
 
 ## [0.1.0]
 

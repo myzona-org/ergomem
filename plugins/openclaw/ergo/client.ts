@@ -64,6 +64,14 @@ const OK = [200] as const;
 // 409 is a documented outcome of the guarded write paths, not a failure.
 const GUARDED_OK = [200, 409] as const;
 
+// Replaces the O(n^2) `.replace(/\/+$/, "")` (CodeQL ReDoS alert) -- a loop
+// bounded by the number of trailing slashes is linear regardless of input.
+function stripTrailingSlashes(url: string): string {
+  let end = url.length;
+  while (end > 0 && url[end - 1] === "/") end -= 1;
+  return url.slice(0, end);
+}
+
 export class ErgoClient {
   readonly baseUrl: string;
   private readonly apiToken?: string;
@@ -71,7 +79,7 @@ export class ErgoClient {
   private readonly fetchImpl: typeof fetch;
 
   constructor(options: ErgoClientOptions) {
-    this.baseUrl = options.baseUrl.replace(/\/+$/, "");
+    this.baseUrl = stripTrailingSlashes(options.baseUrl);
     this.apiToken = options.apiToken;
     this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     this.fetchImpl = options.fetchImpl ?? fetch;

@@ -97,8 +97,17 @@ TABLE_SEP_RE = re.compile(r"^\s*\|?[\s:|-]+\|?\s*$")
 HR_RE = re.compile(r"^\s*(-{3,}|\*{3,}|_{3,})\s*$")
 # A line that is ONLY a link/image/badge (e.g. shields.io build badges) --
 # never a decision statement on its own.
+# Negated character classes ([^\]] / [^)]) instead of lazy `.*?` -- the lazy
+# form backtracks exponentially on repeated `[]()` groups with no terminator
+# (CodeQL ReDoS alert). A link target never contains `)`, so `[^)]*` is
+# unambiguous there. A link's TEXT is either plain (no brackets) or exactly
+# one embedded image -- the canonical `[![Build Status](badge.svg)](ci-url)`
+# clickable-badge idiom -- so _LINK_TEXT covers both without reintroducing
+# the ambiguity a plain `.*?`/`[^\]]*` would have on nested brackets (a bare
+# `[^\]]*` stops at the badge's own `]`, breaking this exact idiom).
+_LINK_TEXT = r"(?:!\[[^\]]*\]\([^)]*\)|[^\[\]]*)"
 BADGE_OR_LINK_ONLY_RE = re.compile(
-    r"^\s*(!?\[.*?\]\(.*?\)\s*)+[.,;:!?]?\s*$"
+    rf"^\s*(!?\[{_LINK_TEXT}\]\([^)]*\)\s*)+[.,;:!?]?\s*$"
 )
 
 MAX_CANDIDATE_CHARS = 600  # over this -> prose, not a decision.

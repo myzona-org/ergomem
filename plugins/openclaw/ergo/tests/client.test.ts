@@ -98,3 +98,13 @@ test("baseUrl trailing slashes are normalized so paths never double up", async (
   await client.health();
   assert.equal(calls[0].url, "http://x/health");
 });
+
+test("baseUrl with no trailing slash is left unchanged", () => {
+  const client = new ErgoClient({ baseUrl: "http://x", fetchImpl: (async () => new Response("{}")) as unknown as typeof fetch });
+  assert.equal(client.baseUrl, "http://x");
+});
+
+test("baseUrl with a single trailing slash strips it", () => {
+  const client = new ErgoClient({ baseUrl: "http://x/", fetchImpl: (async () => new Response("{}")) as unknown as typeof fetch });
+  assert.equal(client.baseUrl, "http://x");
+});

@@ -118,6 +118,68 @@ def test_parse_json_handles_provider_response_shapes():
     assert p('Here is the JSON: {"subject": "v", "modality": "may"} done.')["subject"] == "v"
 
 
+@pytest.mark.parametrize("content,expected", [
+    ('{"a":1}', '{"a":1}'),
+    ('```json\n{"a":1}\n```', '{"a":1}'),
+    ('```\n{"a":1}\n```', '{"a":1}'),
+    ('<think>reasoning</think>{"a":1}', '{"a":1}'),
+    ('<think>a</think>x<think>b</think>y', 'xy'),
+    ('prose {"a":1} more', 'prose {"a":1} more'),
+    ('[{"a":1}]', '[{"a":1}]'),
+    ('I refuse.', 'I refuse.'),
+    ('', ''),
+    ('```   ```', ''),
+    ('<think>unclosed', '<think>unclosed'),
+    ('``` a ``` b ```', 'a'),
+    ('text ```json  {"k":2} ``` tail', '{"k":2}'),
+])
+def test_think_strip_and_fence_extract_equivalence_table(content, expected):
+    """Equivalence table (ReDoS fix, CodeQL alerts 3+4): the index-based
+    _strip_think_blocks/_extract_fenced replacement for the old
+    `<think>.*?</think>` / ```` ```(?:json)?\\s*(.*?)``` ```` regexes must
+    produce byte-identical intermediate content for every shape an LLM
+    response can take."""
+    from ergo.contradiction.normalize import _strip_think_blocks, _extract_fenced
+
+    stripped = _strip_think_blocks(content).strip()
+    fenced = _extract_fenced(stripped)
+    result = fenced.strip() if fenced is not None else stripped
+    assert result == expected
+
+
+def test_think_block_stripping_is_linear_time_not_quadratic():
+    """ReDoS regression (CodeQL alert 3): `re.sub(r"<think>.*?</think>", ...)`
+    rescans from every `<think>` occurrence for a close tag it will never
+    find -- O(n^2). 8000 unterminated `<think>` tags took ~1s pre-fix; the
+    linear replacement must clear a generous 1s ceiling."""
+    import time
+    from ergo.contradiction.normalize import _LLMNormalizerBase
+
+    p = _LLMNormalizerBase._parse_json
+    pathological = "<think>" * 8000
+    start = time.monotonic()
+    assert p(pathological) is None
+    assert time.monotonic() - start < 1.0
+
+
+def test_fence_extraction_is_linear_time_not_quadratic():
+    """ReDoS regression (CodeQL alert 4): the fenced-block regex's greedy
+    `\\s*` immediately followed by lazy `(.*?)` backtracks quadratically when
+    no closing ``` ``` ``` ever appears -- ~1s pre-fix at n=20000 padding
+    chars. (A purely-whitespace tail is trimmed by the preceding `.strip()`
+    before the fence regex ever runs, so the padding needs a trailing
+    non-whitespace character to actually reach the fence step pathologically.)
+    The linear replacement must clear a generous 1s ceiling."""
+    import time
+    from ergo.contradiction.normalize import _LLMNormalizerBase
+
+    p = _LLMNormalizerBase._parse_json
+    pathological = "```" + " " * 20000 + "x"
+    start = time.monotonic()
+    assert p(pathological) is None
+    assert time.monotonic() - start < 1.0
+
+
 def test_parse_json_returns_none_on_refusal_instead_of_raising():
     """A model that emits no JSON object must yield None (caller degrades to an
     unknown norm) — NOT a JSONDecodeError that 500s the triggering write."""
