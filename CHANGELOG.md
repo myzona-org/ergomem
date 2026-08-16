@@ -9,10 +9,19 @@ none.
 
 ## [Unreleased]
 
-- Release 0.1.1: quickstart pulls the 0.1.1 image
-- Lead the quickstart with the published GHCR image; keep the ingest-tool symlink
-- Correct the image-publication status in docs; add OCI image labels
-- Fix 5 ReDoS findings in the normalizer, ingest tool, and OpenClaw client
+Nothing yet — entries land here as changes ship after the release below.
+
+## [0.1.1] — 2026-08-16
+
+- Quickstart leads with `docker pull ghcr.io/myzona-org/ergomem:0.1.1` instead of a
+  from-source build; the from-source path stays as the alternative.
+- The published image is built and pushed by this repository's own Actions workflow
+  (multi-arch `linux/amd64` + `linux/arm64`), not by hand from a laptop.
+- Docs no longer claim an OCI `image.source` label is what links the package to this
+  repo — only an Actions-pushed package auto-links.
+- `tools/ergo-ingest-repo/ergo-ingest-repo` ships as the symlink it is upstream, instead
+  of a second copy of `ergo_ingest_repo.py`.
+- Fixed 5 ReDoS findings in the normalizer, the ingest tool, and the OpenClaw client.
 
 ## [0.1.0]
 
