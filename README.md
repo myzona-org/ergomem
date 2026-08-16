@@ -67,8 +67,8 @@ default `ERGO_API_URL`. To reach it from another machine, bind a real interface
 network with no token.
 
 ```bash
-docker pull ghcr.io/myzona-org/ergomem:0.1.0   # multi-arch (amd64 + arm64), models baked in
-docker tag ghcr.io/myzona-org/ergomem:0.1.0 ergo
+docker pull ghcr.io/myzona-org/ergomem:0.1.1   # multi-arch (amd64 + arm64), models baked in
+docker tag ghcr.io/myzona-org/ergomem:0.1.1 ergo
 
 # or build it yourself instead (downloads + bakes the embedder + NLI, needs network once):
 # docker build -t ergo .

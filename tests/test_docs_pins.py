@@ -113,3 +113,52 @@ def test_pinned_dependency_versions_are_consistent_everywhere():
         "single source of truth, update each site below to match it:\n  "
         + "\n  ".join(mismatches)
     )
+
+
+# The same drift class, one level up: the PROJECT's own version is restated
+# in ergo/__init__.py (`__version__`) and in the README's `docker pull
+# ghcr.io/<org>/<repo>:<version>` quickstart. Nothing tied those to
+# pyproject.toml, so cutting a release could ship a README telling readers
+# to pull the tag that release just superseded.
+_PROJECT_VERSION_RE = re.compile(r'(?m)^version\s*=\s*"(\d+(?:\.\d+){1,2})"')
+_DUNDER_VERSION_RE = re.compile(r'__version__\s*=\s*"([^"]+)"')
+_IMAGE_TAG_RE = re.compile(r"ghcr\.io/[A-Za-z0-9_.\-]+/[A-Za-z0-9_.\-]+:(\d+(?:\.\d+){1,2})")
+
+
+def _project_version() -> str:
+    m = _PROJECT_VERSION_RE.search(_PYPROJECT.read_text())
+    assert m, "pyproject.toml has no top-level `version = \"X.Y.Z\"`"
+    return m.group(1)
+
+
+def test_dunder_version_matches_pyproject():
+    text = (_REPO_ROOT / "ergo" / "__init__.py").read_text()
+    m = _DUNDER_VERSION_RE.search(text)
+    assert m, "ergo/__init__.py declares no __version__"
+    assert m.group(1) == _project_version(), (
+        f"ergo/__init__.py says __version__ = {m.group(1)!r} but pyproject.toml "
+        f"says {_project_version()!r} -- pyproject.toml is the source of truth")
+
+
+def test_published_image_tag_restatements_match_the_project_version():
+    expected = _project_version()
+    mismatches = []
+    for path in _tracked_files():
+        if not _is_scannable(path):
+            continue
+        try:
+            text = path.read_text()
+        except (UnicodeDecodeError, OSError):
+            continue
+        rel = path.relative_to(_REPO_ROOT)
+        for lineno, line in enumerate(text.splitlines(), start=1):
+            for version in _IMAGE_TAG_RE.findall(line):
+                if version != expected:
+                    mismatches.append(
+                        f"{rel}:{lineno}: pulls image tag {version}, "
+                        f"pyproject.toml declares {expected}")
+
+    assert not mismatches, (
+        "stale published-image tag(s) -- bump them with the release, or the "
+        "quickstart points at a superseded image:\n  " + "\n  ".join(mismatches)
+    )

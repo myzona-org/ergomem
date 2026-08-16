@@ -9,6 +9,7 @@ none.
 
 ## [Unreleased]
 
+- Release 0.1.1: quickstart pulls the 0.1.1 image
 - Lead the quickstart with the published GHCR image; keep the ingest-tool symlink
 - Correct the image-publication status in docs; add OCI image labels
 - Fix 5 ReDoS findings in the normalizer, ingest tool, and OpenClaw client
