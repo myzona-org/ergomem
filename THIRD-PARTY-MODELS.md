@@ -6,10 +6,14 @@ are pulled from the Hugging Face Hub and shipped as binary weights inside the bu
 image. This file records what's actually baked, under what license, and — for the one
 case where that isn't settled — says so plainly instead of asserting an answer.
 
-**Scope note:** this file gates any future push of the *built Docker image* to a public
-registry, which has not happened yet. It does not gate publishing this source repository
-itself — those are two separate steps, and this file exists so the image step has an
-honest answer to check before it happens.
+**Scope note:** the built Docker image is published publicly
+(`ghcr.io/myzona-org/ergomem`), with the NLI judge's license question below still
+open — a deliberate call, not an oversight. This file doesn't gate that decision;
+it exists so anyone deciding whether to redistribute this image themselves (fork
+it, mirror it, rebuild it) has the honest answer to check first, including the
+exact place where the honest answer is "unresolved, here's what's known." It also
+doesn't gate publishing this source repository itself — those are two separate
+steps.
 
 ## 1. Embedder — `BAAI/bge-small-en-v1.5`
 
@@ -53,13 +57,17 @@ honest answer to check before it happens.
     `ERGO_NLI_VARIANT=quantized` actually downloads, `onnx/model_quantized.onnx`, sha256
     `9d83d9d0ba179cab8b78b942dcc42756da7712b2bbe101a2a4c25fdfa7968e2f`. Upstream
     `cross-encoder/nli-deberta-v3-base` revision `6c749ce3425cd33b46d187e45b92bbf96ee12ec7`.
-  - **Practical consequence:** until this is either clarified upstream (an explicit
+  - **Practical consequence:** this project publishes the built Docker image
+    containing this exact checkpoint anyway, with this license question
+    **disclosed rather than resolved** — a deliberate call, not a claim that the
+    question is settled. Until this is either clarified upstream (an explicit
     license from the mirror's maintainer, or a re-conversion done by this project
-    directly from the Apache-2.0 upstream) or otherwise confirmed, **redistributing the
-    built Docker image is on hold until this is resolved.** Running the engine from
-    source, or building your own image after re-converting the model yourself, is not
-    affected by this uncertainty — publishing a pre-built image containing this exact
-    checkpoint is what's paused.
+    directly from the Apache-2.0 upstream) or otherwise confirmed, anyone
+    redistributing this image further, or relying on it commercially, should treat
+    the NLI judge's license as unresolved and make their own call using the chain
+    above. Running the engine from source, or building your own image after
+    re-converting the model yourself, carries the exact same open question — it
+    is not somehow safer, just less visible.
   - ⚠️ If this project ever re-converts the model from the Apache-2.0 upstream to settle
     this, that changes the model's bytes. The pinned NLI runtime's numerics are known to
     be sensitive to exactly that kind of change, so any re-conversion needs the judge's

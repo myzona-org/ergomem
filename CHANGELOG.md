@@ -9,6 +9,7 @@ none.
 
 ## [Unreleased]
 
+- Correct the image-publication status in docs; add OCI image labels
 - Fix 5 ReDoS findings in the normalizer, ingest tool, and OpenClaw client
 
 ## [0.1.0]

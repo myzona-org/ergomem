@@ -31,7 +31,7 @@ and what you expected versus what happened.
 |---|---|
 | The current `main` branch, run from source | ✅ |
 | A Docker image you build yourself from the current source | ✅ |
-| A previously published Docker image | ❌ (redistributing a built image is on hold — see [THIRD-PARTY-MODELS.md](THIRD-PARTY-MODELS.md)) |
+| A published Docker image (`ghcr.io/myzona-org/ergomem`) | ✅ (same source as `main`; one baked model's license is disclosed, not resolved — see [THIRD-PARTY-MODELS.md](THIRD-PARTY-MODELS.md)) |
 | A fork or a modified build | ❌ (report to whoever maintains that fork) |
 
 There's no long-term-support branch. This is one person maintaining one moving line —

@@ -30,6 +30,14 @@
 
 FROM python:3.12-slim AS base
 
+# OCI annotations so the published GHCR package self-links to its repo,
+# README, and licence -- github.com reads org.opencontainers.image.source
+# to make that association automatically, no manual "linked repository" step.
+LABEL org.opencontainers.image.title="ergo" \
+      org.opencontainers.image.description="Memory that remembers WHY -- and catches itself contradicting." \
+      org.opencontainers.image.licenses="LicenseRef-Ergo-NonCommercial"
+LABEL org.opencontainers.image.source="https://github.com/myzona-org/ergomem"
+
 ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
