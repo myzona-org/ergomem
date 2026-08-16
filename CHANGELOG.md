@@ -9,7 +9,7 @@ none.
 
 ## [Unreleased]
 
-Nothing yet — entries land here as changes ship after the release below.
+- Release 0.1.2: stamp created/revision/version on the published image
 
 ## [0.1.1] — 2026-08-16
 

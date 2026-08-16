@@ -5,4 +5,4 @@ The public surface is the HTTP API in `ergo.contradiction.server` (run with
 directly via `ergo.contradiction.store.ContradictionStore`.
 """
 
-__version__ = "0.1.1"
+__version__ = "0.1.2"
