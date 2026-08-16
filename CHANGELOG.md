@@ -9,7 +9,7 @@ none.
 
 ## [Unreleased]
 
-Nothing yet — entries land here as changes ship after the release below.
+- Fix the image-tag guard so a changelog can keep its own history
 
 ## [0.1.2] — 2026-08-16
 

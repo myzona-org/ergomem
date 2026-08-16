@@ -140,25 +140,62 @@ def test_dunder_version_matches_pyproject():
         f"says {_project_version()!r} -- pyproject.toml is the source of truth")
 
 
-def test_published_image_tag_restatements_match_the_project_version():
-    expected = _project_version()
-    mismatches = []
-    for path in _tracked_files():
-        if not _is_scannable(path):
+# A changelog's whole job is to name superseded versions: the public
+# CHANGELOG's `## [0.1.1]` entry legitimately says the 0.1.1 quickstart
+# pulled `…:0.1.1`, and rewriting that on every release would destroy the
+# record. Scanning it turned this guard into a release-breaker -- it went
+# red on the PUBLIC mirror the moment 0.1.2 shipped, and the private tree
+# never saw it because the mirror keeps its own release notes while this
+# repo's copy never propagates. History files are excluded by BASENAME so a
+# nested changelog can't sneak past.
+_VERSION_HISTORY_FILENAMES = {"CHANGELOG.md"}
+
+
+def _stale_image_tags(paths, expected: str, root: Path) -> list[str]:
+    """Return `<relpath>:<lineno>: …` for every published-image tag that
+    disagrees with `expected`, skipping files that exist to record history."""
+    stale = []
+    for path in paths:
+        if not _is_scannable(path) or path.name in _VERSION_HISTORY_FILENAMES:
             continue
         try:
             text = path.read_text()
         except (UnicodeDecodeError, OSError):
             continue
-        rel = path.relative_to(_REPO_ROOT)
+        rel = path.relative_to(root)
         for lineno, line in enumerate(text.splitlines(), start=1):
             for version in _IMAGE_TAG_RE.findall(line):
                 if version != expected:
-                    mismatches.append(
+                    stale.append(
                         f"{rel}:{lineno}: pulls image tag {version}, "
                         f"pyproject.toml declares {expected}")
+    return stale
 
+
+def test_published_image_tag_restatements_match_the_project_version():
+    mismatches = _stale_image_tags(_tracked_files(), _project_version(), _REPO_ROOT)
     assert not mismatches, (
         "stale published-image tag(s) -- bump them with the release, or the "
         "quickstart points at a superseded image:\n  " + "\n  ".join(mismatches)
     )
+
+
+def test_changelog_may_name_superseded_image_tags(tmp_path):
+    """The regression that took the public mirror's CI red: a released
+    version's changelog entry names the tag that release shipped, forever.
+
+    The fixture strings are COMPOSED, never written out whole -- a literal
+    `<registry>/<owner>/<repo>:<x.y.z>` in this file would be picked up by
+    the repo-wide scan above and fail the very guard it tests (it did, once).
+    Same reason the module docstring gives for never restating a pin here."""
+    image = "ghcr.io/" + "myzona-org/ergomem"
+    old, current = "0.1.1", "0.1.2"
+    (tmp_path / "CHANGELOG.md").write_text(
+        f"## [{old}]\n\n- quickstart pulls `{image}:{old}`\n")
+    (tmp_path / "README.md").write_text(f"docker pull {image}:{old}\n")
+
+    stale = _stale_image_tags(sorted(tmp_path.iterdir()), current, tmp_path)
+
+    assert stale == [
+        f"README.md:1: pulls image tag {old}, pyproject.toml declares {current}"
+    ], stale
