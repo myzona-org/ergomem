@@ -67,8 +67,14 @@ default `ERGO_API_URL`. To reach it from another machine, bind a real interface
 network with no token.
 
 ```bash
-docker build -t ergo .          # downloads + bakes the embedder + NLI (needs network once)
+docker pull ghcr.io/myzona-org/ergomem:0.1.0   # multi-arch (amd64 + arm64), models baked in
+docker tag ghcr.io/myzona-org/ergomem:0.1.0 ergo
 
+# or build it yourself instead (downloads + bakes the embedder + NLI, needs network once):
+# docker build -t ergo .
+```
+
+```bash
 docker run -d --name ergo -p 127.0.0.1:8788:8000 \
   -e ERGO_API_TOKEN=*** \
   -e ERGO_OWNER="you@example.com" \
@@ -94,9 +100,9 @@ curl -s -H "$TOK" "http://127.0.0.1:8788/why?org_id=acme&project=kb&q=when%20to%
 
 The `/data` volume holds the SQLite file (`ergo.db`). Back it up with the
 SQLite online-backup API or `VACUUM INTO` — never a raw `cp` while the
-engine is running, since WAL mode would corrupt a byte-copy. The image
-stays the same across architectures; build on the platform you’ll run on
-(arm64 vs amd64).
+engine is running, since WAL mode would corrupt a byte-copy. The published image is a **multi-arch manifest** (`linux/amd64` +
+`linux/arm64`), so `docker pull` selects the right one; a local
+`docker build` only ever produces the platform you build on.
 
 ### Air-gapped (no Anthropic)
 

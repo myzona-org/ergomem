@@ -1,0 +1,175 @@
+name: publish-image
+
+# Publishes the built image to GHCR from Actions using the repo's own
+# GITHUB_TOKEN -- no PAT, no stored secret. This also fixes package/repo
+# linking: GitHub's package<->repo auto-link only fires for packages pushed
+# by Actions, so a hand-pushed image (built on a laptop with a personal PAT)
+# permanently shows "not linked" on the package page even with a correct
+# org.opencontainers.image.source label.
+#
+# Triggers are deliberately narrow: a real version tag push, or a manual
+# dry-run-by-default dispatch. NEVER pull_request or pull_request_target --
+# this workflow holds packages: write on its build/publish jobs, and a
+# workflow with write scopes must never be reachable from a fork's pull
+# request.
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Build only, do not push to GHCR"
+        type: boolean
+        default: true
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  # `github.repository` is derived, not hardcoded -- that's what makes the
+  # published package self-link to whatever repo (or fork) actually built
+  # it -- but GHCR requires a lowercase image name while an owner/repo slug
+  # can contain uppercase (e.g. a fork under a mixed-case username), so it's
+  # lowercased once here rather than left to fail deep inside build-push-
+  # action or the final imagetools call.
+  prep:
+    runs-on: ubuntu-latest
+    outputs:
+      image: ${{ steps.image.outputs.image }}
+    steps:
+      - name: Compute the lowercased GHCR image name
+        id: image
+        run: echo "image=ghcr.io/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
+
+  # One job per native runner instead of QEMU: the image bakes two ONNX
+  # models at build time (see Dockerfile's boot-test RUN step), and doing
+  # that under amd64->arm64 emulation is both slow and has been the
+  # flakiest part of this build historically. ubuntu-24.04-arm is a real
+  # (free, for public repos) arm64 runner, so each architecture builds
+  # natively and pushes its own digest-only image; the merge job below
+  # stitches the two digests into one multi-arch manifest list. This is
+  # docker/build-push-action's own documented pattern for distributing a
+  # multi-platform build across native runners (as opposed to a single
+  # QEMU-emulated job) -- digests are handed between jobs via upload/
+  # download-artifact because a matrix job's `outputs:` only keeps the
+  # LAST matrix leg to finish, silently dropping the other arch's digest.
+  build:
+    needs: prep
+    strategy:
+      matrix:
+        include:
+          - platform: linux/amd64
+            runs-on: ubuntu-latest
+          - platform: linux/arm64
+            runs-on: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runs-on }}
+    # A local no-cache amd64 build took ~45s on a GitHub-hosted runner; this
+    # leaves real headroom for a cold fastembed/ONNX model download plus a
+    # slower/contended runner without masking an actual hang.
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: write
+    env:
+      IMAGE: ${{ needs.prep.outputs.image }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Turn linux/amd64 into a safe filename fragment
+        run: echo "PLATFORM_PAIR=${PLATFORM/\//-}" >> "$GITHUB_ENV"
+        env:
+          PLATFORM: ${{ matrix.platform }}
+
+      - uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
+
+      - uses: docker/login-action@371161bbe7024a29a25c5e19bfcbc0804fe9ad2c # v4.5.2
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Pushed by digest only, no tag. push=true requires BOTH a real tag
+      # ref AND (a tag push, or an explicit dry_run: false dispatch) -- the
+      # ref_type check matters on its own: workflow_dispatch can run against
+      # any branch, and without it a dry_run: false dispatch from main would
+      # push and overwrite the published `latest` tag with an untested,
+      # unreleased build. Gating on dry_run alone (the naive read of "build
+      # only, no push") isn't enough.
+      - uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
+        id: build
+        with:
+          context: .
+          platforms: ${{ matrix.platform }}
+          outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=${{ github.ref_type == 'tag' && (github.event_name == 'push' || inputs.dry_run == false) }}
+
+      - name: Export the digest so the merge job can find it
+        if: github.ref_type == 'tag' && (github.event_name == 'push' || inputs.dry_run == false)
+        run: |
+          mkdir -p /tmp/digests
+          digest="${{ steps.build.outputs.digest }}"
+          touch "/tmp/digests/${digest#sha256:}"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        if: github.ref_type == 'tag' && (github.event_name == 'push' || inputs.dry_run == false)
+        with:
+          name: digests-${{ env.PLATFORM_PAIR }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  # Assembles the two native per-arch digest-only pushes above into one
+  # multi-arch manifest list under the real published tags (semver +
+  # latest).
+  publish-manifest:
+    needs: [prep, build]
+    if: github.ref_type == 'tag' && (github.event_name == 'push' || inputs.dry_run == false)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write
+    env:
+      IMAGE: ${{ needs.prep.outputs.image }}
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          path: /tmp/digests
+          pattern: digests-*
+          merge-multiple: true
+
+      - uses: docker/login-action@371161bbe7024a29a25c5e19bfcbc0804fe9ad2c # v4.5.2
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Strips the leading "v" a git tag carries (v0.1.0 -> 0.1.0) and adds
+      # `latest` -- the two tags this repo publishes. This job only ever
+      # runs with github.ref_type == 'tag' (see the job-level `if:` above),
+      # so `type=semver` always resolves against a real tag and
+      # steps.meta.outputs.version (used below to verify the push) is
+      # always a tag that actually got pushed -- unlike an unconditional
+      # `latest`, which could otherwise be overwritten by a non-tag,
+      # dry_run: false dispatch.
+      - uses: docker/metadata-action@030e881283bb7a6894de51c315a6bfe6a94e05cf # v6.0.0
+        id: meta
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=raw,value=latest
+
+      - name: Create and push the manifest list
+        working-directory: /tmp/digests
+        run: |
+          docker buildx imagetools create \
+            $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
+            $(printf "${{ env.IMAGE }}@sha256:%s " *)
+
+      - name: Inspect the published manifest list
+        run: docker buildx imagetools inspect ${{ env.IMAGE }}:${{ steps.meta.outputs.version }}

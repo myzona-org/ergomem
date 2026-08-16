@@ -30,9 +30,13 @@
 
 FROM python:3.12-slim AS base
 
-# OCI annotations so the published GHCR package self-links to its repo,
-# README, and licence -- github.com reads org.opencontainers.image.source
-# to make that association automatically, no manual "linked repository" step.
+# OCI metadata (repo, licence, description) carried by the image itself, so
+# a pulled image can be traced back to its source without the registry page.
+# This label is NOT what links a GHCR package to its repo: the hand-pushed
+# 0.1.0 image carried a correct image.source and the package still reported
+# no linked repository. GitHub only auto-links a package that its OWN
+# Actions run pushed, which is why the image is published from CI and not
+# by hand from a laptop.
 LABEL org.opencontainers.image.title="ergo" \
       org.opencontainers.image.description="Memory that remembers WHY -- and catches itself contradicting." \
       org.opencontainers.image.licenses="LicenseRef-Ergo-NonCommercial"
