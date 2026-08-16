@@ -9,7 +9,13 @@ none.
 
 ## [Unreleased]
 
-- Release 0.1.2: stamp created/revision/version on the published image
+Nothing yet — entries land here as changes ship after the release below.
+
+## [0.1.2] — 2026-08-16
+
+- The published image now carries `org.opencontainers.image.created`, `.revision` and
+  `.version`, at both per-architecture and manifest-index level, so a pulled image can be
+  traced back to the commit that built it. `0.1.0` and `0.1.1` shipped with all three empty.
 
 ## [0.1.1] — 2026-08-16
 
