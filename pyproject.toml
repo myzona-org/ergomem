@@ -40,7 +40,7 @@ engine = [
 # registration to behave identically across machines. Bump deliberately, then
 # re-run tests/mcp_adapter/. httpx is also a base dep (>=0.27); pinned here for the adapter.
 mcp = [
-    "mcp==1.29.0",
+    "mcp==1.30.0",
     "httpx==0.28.1",
 ]
 
